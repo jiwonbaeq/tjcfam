@@ -1,0 +1,1277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<base href="/fam/">
+<title>TJC Fam Calendar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: one-screen tool. Brand bar, a control bar, then a scrolling time grid whose lane headers and hour gutter stay pinned. Panels slide over from the right.
+   Single dark look, taken from TJC Brain: pure black ground, white type, hairline rules, solid-vs-outline pills. People are told apart by fill: orange for you, navy and dark brown for the two reports. */
+:root{
+  --bg:#000; --surface:#0b0b0b; --raise:#1c1c1b; --line:#232322; --line-faint:#131313; --line-2:#3c3c3a;
+  --fg:#f3f3f0; --mute:#8d8d89; --dim:#5b5b57; --hatch:#3a3a37; --orange:#b55516; --orange-edge:#d4743a; --on-orange:#f3f3f0; --live:#1fae58; --now:#ff3b3b; --now-line:rgba(255,59,59,.55); --now-faint:rgba(255,59,59,.25); --chk:#1d6b3c; --chk-edge:#33a463; --navy:#1f3263; --navy-edge:#3d5596; --brown:#4f3121; --brown-edge:#7a5038; --warn:#e8b14d;
+  --display:"Space Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ui:"JetBrains Mono", "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  --gut:64px;
+  color-scheme:dark;
+  box-sizing:border-box; height:100%;
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{height:100%}
+body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:13px;overflow:hidden;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;padding:0}
+:focus-visible{outline:1.5px solid var(--fg);outline-offset:2px}
+.cap{text-transform:uppercase;letter-spacing:.12em;font-size:11px}
+
+#app{height:100%;display:flex;flex-direction:column;padding-inline:clamp(16px,3.2vw,48px);padding-block:0}
+
+/* brand bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px 18px}
+.logo{font-family:var(--display);font-weight:700;font-size:clamp(20px,2.4vw,30px);letter-spacing:.02em;display:flex;align-items:center;gap:12px;white-space:nowrap}
+.mark{display:inline-flex;gap:3px;height:.82em;align-items:stretch}
+.mark i{width:7px;border:1.5px solid var(--fg)}
+.mark i:nth-child(1){background:var(--orange);border-color:var(--orange-edge)}
+.mark i:nth-child(2){background:var(--navy);border-color:var(--navy-edge)}
+.mark i:nth-child(3){background:var(--brown);border-color:var(--brown-edge)}
+.clock{font-family:var(--display);font-size:clamp(12px,1.2vw,15px);letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* control bar */
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding-block:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.seg{display:flex;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 13px;border:1.5px solid var(--fg);border-radius:7px;font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;transition:background .12s,color .12s}
+.pill:hover{background:var(--raise)}
+.pill.on{background:var(--fg);color:var(--bg)}
+.vbtn{width:30px;padding:0;justify-content:center;letter-spacing:0}
+.seg .pill:not(.on){opacity:.6}
+.seg .pill:not(.on):hover{opacity:1}
+.pill.ghost{border-color:var(--line-2);color:var(--mute)}
+.pill.ghost:hover{color:var(--fg);border-color:var(--fg)}
+.pill.warn{border-color:var(--warn);color:var(--warn)}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.on .dot{animation:blink 2s steps(2,end) infinite}
+#sync.on .dot{background:var(--live);width:8px;height:8px}
+@keyframes blink{50%{opacity:.25}}
+.nav{display:flex;gap:6px;align-items:center}
+.ico{width:30px;height:30px;display:grid;place-items:center;border:1.5px solid var(--line-2);border-radius:7px;font-family:var(--display);font-size:14px}
+.ico:hover{border-color:var(--fg);background:var(--raise)}
+#range{font-family:var(--display);font-weight:700;font-size:clamp(16px,1.7vw,22px);letter-spacing:.04em;margin:0 4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.spacer{flex:1}
+:root.due{--bg:#0a2414; --surface:#0e2c19; --raise:#174226; --line:#1d3d27; --line-faint:#12301c}
+:root.due body{transition:background .4s}
+/* the check-in that's due right now: brightest green, pulsing until Complete */
+.ev.dueev{background:#2fd16c;border-color:#2fd16c;color:#03140a!important;animation:duePulse 1s steps(1,end) infinite;z-index:4}
+.ev.dueev .ev-k,.ev.dueev .ev-t{color:#03140a}
+.mchip.dueev{background:#2fd16c;color:#03140a;animation:duePulse 1s steps(1,end) infinite}
+.mchip.dueev .mt{color:#03140a}
+/* flat, hard on/off flash between two solid greens: no glow, matches the matte 2D style */
+@keyframes duePulse{0%,49.9%{background:#2fd16c;border-color:#2fd16c}50%,100%{background:#b9f5cf;border-color:#b9f5cf}}
+.done-btn{background:var(--chk-edge);border-color:var(--chk-edge);color:#04120a}
+.done-btn:hover{background:#4cc47d;border-color:#4cc47d}
+.people{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 11px 0 9px;border:1px solid var(--line-2);border-radius:7px;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.chip b{font-weight:500}
+.chip small{color:var(--mute);font-size:11px;font-variant-numeric:tabular-nums}
+.chip:hover{border-color:var(--fg)}
+.chip.off{opacity:.38}
+.chip.off .sw{background:transparent!important;border-style:dashed}
+
+/* person swatches: the whole legend */
+.sw{display:inline-block;width:12px;height:12px;border:1.5px solid var(--fg);flex:none}
+.sw.p0{background:var(--orange);border-color:var(--orange-edge)}
+.sw.p1{background:var(--navy);border-color:var(--navy-edge)}
+.sw.p2{background:var(--brown);border-color:var(--brown-edge)}
+
+.notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;margin-top:12px;border:1px dashed var(--line-2);border-radius:8px;color:var(--mute);font-size:12px;line-height:1.5}
+.notice b{color:var(--fg);font-family:var(--display);letter-spacing:.12em;font-size:11px}
+.notice .acts{display:flex;gap:6px;margin-left:auto}
+.notice.warn{border-color:var(--warn)} .notice.warn b{color:var(--warn)}
+
+#view{flex:1;min-height:0;display:flex;flex-direction:column;padding-block:12px 16px}
+.empty{margin:auto;color:var(--mute);text-align:center;line-height:1.6}
+
+/* time grid */
+.tg-scroll{flex:1;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:10px;overscroll-behavior:contain}
+.tg{display:grid;width:100%;grid-template-rows:auto auto auto auto;--t2:0px;position:relative}
+.tg.week{--t2:38px;min-width:calc(var(--gut) + var(--n) * 44px)}
+.corner,.dayh,.ph,.adc{position:sticky;background:var(--bg);z-index:5}
+.corner{left:0;z-index:7;border-right:1px solid var(--line)}
+.r1{grid-row:1;top:0;height:38px}
+.r2{grid-row:2;top:var(--t2);height:46px}
+.r3{grid-row:3;top:calc(var(--t2) + 46px)}
+.dayh{grid-row:1;top:0;height:38px;display:flex;align-items:center;justify-content:center;gap:8px;border-left:1px solid var(--line-2);border-bottom:1px solid var(--line);font-family:var(--display);font-size:11px;letter-spacing:.14em;color:var(--mute)}
+.dayh b{font-size:13px;color:var(--fg)}
+.dayh:hover{background:var(--raise)}
+.dayh.today{color:var(--fg)}
+.dayh.today b{background:var(--fg);color:var(--bg);padding:2px 7px;border-radius:5px}
+.ph{grid-row:2;top:var(--t2);height:46px;display:flex;align-items:center;gap:8px;padding:0 10px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0;overflow:hidden}
+.ph.dstart{border-left-color:var(--line-2)}
+.ph .nm{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ph .rl{color:var(--mute);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ph .stack{display:flex;flex-direction:column;min-width:0;gap:2px}
+.ph .hrs{margin-left:auto;color:var(--mute);font-size:11px;font-variant-numeric:tabular-nums}
+.week .ph{justify-content:center;padding:0;gap:0}
+.week .ph .sw{width:14px;height:14px}
+.corner.r2{display:flex;align-items:flex-end;justify-content:flex-end;padding:0 8px 8px 0;font-size:10px;color:var(--dim);letter-spacing:.1em;border-bottom:1px solid var(--line)}
+.corner.r1{border-bottom:1px solid var(--line)}
+.corner.r3{display:flex;align-items:center;justify-content:flex-end;padding:0 8px;font-size:9.5px;color:var(--dim);letter-spacing:.12em;border-bottom:1px solid var(--line-2)}
+.adc{grid-row:3;min-height:28px;padding:3px;display:flex;flex-direction:column;gap:3px;border-left:1px solid var(--line);border-bottom:1px solid var(--line-2);min-width:0}
+.adc.dstart{border-left-color:var(--line-2)}
+.ad{display:block;width:100%;text-align:left;font-size:10.5px;line-height:1;padding:4px 6px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.04em}
+
+.gut{grid-row:4;grid-column:1;position:sticky;left:0;z-index:4;background:var(--bg);border-right:1px solid var(--line);height:calc(var(--H) * 10)}
+.gut span.first{transform:none}
+.gut span.last{transform:translateY(-100%)}
+.gut span{position:absolute;right:8px;transform:translateY(-50%);font-size:10px;color:var(--fg);letter-spacing:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gut .nowtag{right:4px;background:var(--now);color:#fff;font-family:var(--display);font-weight:700;font-size:10px;padding:2px 5px;border-radius:4px;letter-spacing:.04em;z-index:2}
+.col{grid-row:4;position:relative;height:calc(var(--H) * 10);border-left:1px solid var(--line);min-width:0;
+  background-image:linear-gradient(to bottom,var(--line) 1px,transparent 1px),linear-gradient(to bottom,var(--line-faint) 1px,transparent 1px);
+  background-size:100% var(--H),100% calc(var(--H) / 2)}
+.col.dstart{border-left-color:var(--line-2)}
+.col.today{background-color:var(--surface)}
+.nowlayer{grid-row:4;grid-column:2 / -1;position:relative;pointer-events:none;z-index:3}
+.nowlayer i{position:absolute;top:var(--y);height:0;display:block}
+.nowfaint{left:0;right:0;border-top:1px dashed var(--now-faint)}
+.nowsolid{border-top:1.5px solid var(--now-line)}
+.nowsolid::before{content:"";position:absolute;left:-4px;top:-5px;width:8px;height:8px;border-radius:50%;background:var(--now);opacity:.8}
+
+/* blocks */
+.ev{position:absolute;border-radius:5px;padding:4px 6px;overflow:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;flex-direction:column;gap:2px;min-height:14px;z-index:1;transition:box-shadow .12s}
+.ev:hover{z-index:2;box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--mute)}
+.ev.p0{background:var(--orange);color:var(--on-orange);border:1.5px solid var(--orange-edge)}
+.ev.p1{background:var(--navy);color:var(--fg);border:1.5px solid var(--navy-edge)}
+.ev.p2{background:var(--brown);color:var(--fg);border:1.5px solid var(--brown-edge)}
+.ev-k{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.ev-t{font-family:var(--display);font-weight:700;font-size:11.5px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;word-break:break-word}
+.ev.tiny{flex-direction:row;align-items:flex-start;gap:6px;padding:2px 6px;overflow:visible;z-index:2}
+.ev.tiny .ev-top{flex:none}
+.ev.tiny .ev-k,.ev.tiny .ev-t{line-height:1.25}
+.ev.tiny .ev-t{flex:1;min-width:0;display:block;-webkit-line-clamp:unset;white-space:normal;overflow:visible}
+.ev.tiny.fit{min-height:0;overflow:hidden;z-index:1}
+.ev.tiny.fit .ev-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal}
+.ev.tiny.fit .ci{display:none}
+.ev.tiny.xs{min-height:0;overflow:hidden;align-items:center;padding:0 6px;border-width:1px}
+.ev.tiny.xs .ev-k,.ev.tiny.xs .ev-t{font-size:9.5px;line-height:1}
+.ev.tiny.xs .ev-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.tiny.xs .ci,.ev.tiny.xs .ev-h::after{display:none}
+.week .ev{padding:3px 4px}
+.week .ev-t{font-size:10.5px}
+.week .ev-k{font-size:9px;letter-spacing:.06em}
+.ev-h{position:absolute;left:0;right:0;bottom:0;height:8px;cursor:ns-resize}
+.ev-h::after{content:"";position:absolute;left:50%;bottom:2px;width:16px;margin-left:-8px;border-top:1.5px solid currentColor;opacity:0;transition:opacity .12s}
+.ev:hover .ev-h::after{opacity:.6}
+.ev-ht{top:0;bottom:auto}
+.ev-ht::after{bottom:auto;top:2px}
+/* alignment guides while dragging: lines at the block's start and end, across every lane */
+.guides{grid-row:4;grid-column:1 / -1;position:relative;pointer-events:none;z-index:8}
+.guides i{position:absolute;left:0;right:0;top:0;height:0;border-top:1px solid rgba(243,243,240,.4)}
+.guides b{position:absolute;left:4px;top:-8px;height:16px;display:flex;align-items:center;padding:0 5px;border-radius:4px;background:rgba(243,243,240,.85);color:var(--bg);font-family:var(--display);font-size:10px;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.ev-top{display:flex;align-items:center;gap:4px;min-width:0}
+.ev-top .ev-k{flex:1;min-width:0}
+.ev .flag{flex:none;font-size:8.5px;letter-spacing:.1em;padding:1px 4px;border-radius:3px;background:var(--warn);color:#000;font-weight:700}
+.ci{flex:none;display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:4px;border:1px solid currentColor;font-family:var(--display);font-weight:700;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;line-height:1;white-space:nowrap}
+.week .ci{height:14px;padding:0 3px;font-size:7.5px;letter-spacing:.04em}
+.week .ev-top{flex-wrap:wrap;row-gap:2px}
+.ev.chkg{background:var(--chk)!important;border-color:var(--chk-edge)!important;color:var(--fg)!important}
+.ev.declined{opacity:.45}
+.ev.declined .ev-t{text-decoration:line-through}
+.ev.ro{cursor:default}
+.ev.ro .ev-h{display:none}
+.warnline{color:var(--warn)!important}
+.week .ev .flag{font-size:0;width:7px;height:7px;padding:0;border-radius:50%}
+.ev.pending{opacity:.6}
+.ev.pending .flag,.ev .flag.local{background:var(--mute)}
+.ev.dragging{cursor:grabbing;z-index:9;box-shadow:0 10px 30px rgba(0,0,0,.7),0 0 0 1.5px var(--fg);opacity:.95}
+.ev.ghost{background:transparent!important;border:1.5px dashed var(--fg)!important;color:var(--fg);pointer-events:none}
+.ev.sel{box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--fg);z-index:3}
+body.is-dragging,body.is-dragging *{cursor:grabbing!important;user-select:none}
+
+/* month */
+.month{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mh{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--line)}
+.mh span{padding:10px 10px;font-family:var(--display);font-size:11px;letter-spacing:.14em;color:var(--mute)}
+.mg{flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto}
+.mc{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px;min-height:104px;overflow:hidden;display:flex;flex-direction:column;gap:4px;min-width:0;cursor:pointer}
+.mc:nth-child(5n){border-right:0}
+.mc:hover{background:var(--surface)}
+.mc.out{color:var(--dim)}
+.mc.out .mn{color:var(--dim)}
+.mc.drop{background:var(--raise);outline:1.5px dashed var(--fg);outline-offset:-3px}
+.mn{align-self:flex-start;font-family:var(--display);font-weight:700;font-size:12px;padding:2px 6px;border-radius:5px;font-variant-numeric:tabular-nums}
+.mn:hover{background:var(--raise)}
+.mc.today .mn{background:var(--fg);color:var(--bg)}
+.ml{display:flex;flex-direction:column;gap:3px;min-width:0}
+.mchip{display:flex;align-items:center;gap:6px;font-size:10.5px;padding:3px 5px;border-radius:4px;min-width:0;cursor:grab;user-select:none}
+.mchip:hover{background:var(--raise)}
+.mchip .sw{width:9px;height:9px}
+.mchip .mt{color:var(--fg);font-variant-numeric:tabular-nums;flex:none}
+.mchip .mx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mchip.dragging{position:relative;z-index:9;pointer-events:none;background:var(--raise);outline:1.5px solid var(--fg)}
+.more{align-self:flex-start;font-size:10px;letter-spacing:.1em;color:var(--mute);padding:2px 5px}
+.more:hover{color:var(--fg)}
+
+/* panels */
+#scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20}
+#panel{position:fixed;top:0;right:0;bottom:0;width:min(420px,100%);background:var(--bg);border-left:1px solid var(--line-2);z-index:21;display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 22px) 24px calc(env(safe-area-inset-bottom,0px) + 22px);overflow:auto;gap:18px}
+.pn-head{display:flex;align-items:center;justify-content:space-between}
+.eyebrow{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.16em}
+.fld{display:flex;flex-direction:column;gap:7px;min-width:0}
+.fld>span{font-size:10.5px;letter-spacing:.14em;color:var(--mute);text-transform:uppercase}
+.fld input,.fld select{height:38px;background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:0 10px;min-width:0;width:100%}
+.fld input:focus,.fld select:focus{border-color:var(--fg);outline:none}
+#f-title{font-family:var(--display);font-weight:700;font-size:15px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chk{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.chk input{width:16px;height:16px;accent-color:var(--fg)}
+.src{font-size:12px;line-height:1.55;color:var(--mute);border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.src b{color:var(--fg);font-weight:500}
+.dur{font-size:11px;color:var(--mute);letter-spacing:.06em}
+.pn-foot{display:flex;flex-direction:column;gap:8px;margin-top:auto;padding-top:8px}
+.pn-row{display:flex;gap:8px;flex-wrap:wrap}
+.btn.fmt.on{background:var(--fg);color:var(--bg)}
+.btn{height:38px;padding:0 16px;border-radius:7px;border:1.5px solid var(--fg);font-family:var(--display);font-weight:700;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase}
+.btn.solid{background:var(--fg);color:var(--bg)}
+.btn.solid:hover{background:#d9d9d5}
+.btn:not(.solid):hover{background:var(--raise)}
+.btn.danger{border-color:var(--line-2);color:var(--mute)}
+.btn.danger.arm{border-color:var(--warn);color:var(--warn)}
+.btn:disabled{opacity:.4;cursor:default}
+.sec{display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--line);padding-top:16px}
+.sec h3{margin:0;font-family:var(--display);font-size:11px;letter-spacing:.16em;color:var(--mute);font-weight:700}
+.accts{display:flex;flex-direction:column;gap:8px}
+.acct{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line-2);border-radius:8px;flex-wrap:wrap}
+.acct-dot{width:8px;height:8px;border-radius:50%;background:var(--live);flex:none}
+.acct-dot.bad{background:var(--warn)}
+.acct-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.acct-main b{font-weight:500;word-break:break-all}
+.acct-main small{color:var(--mute);font-size:11px}
+.acct .btn{height:30px;padding:0 10px;font-size:10.5px}
+a.btn,a.pill{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:inherit}
+a.btn.solid{color:var(--bg)}
+.addacct{align-self:flex-start}
+.prow{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;align-items:end}
+.prow .sw{margin-bottom:12px}
+.prow .full{grid-column:2 / -1}
+.help{font-size:12px;line-height:1.6;color:var(--mute)}
+.help b{color:var(--fg);font-weight:500}
+.status{display:flex;align-items:center;gap:8px;font-size:12px}
+.status .dot{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.status.ok .dot{background:var(--fg)}
+.status.bad{color:var(--warn)} .status.bad .dot{background:var(--warn)}
+.keys{font-size:11px;color:var(--dim);line-height:1.8;letter-spacing:.04em}
+.keys kbd{font-family:var(--display);border:1px solid var(--line-2);border-radius:4px;padding:0 5px;color:var(--mute)}
+
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);max-width:min(560px,calc(100% - 32px));background:var(--fg);color:var(--bg);padding:11px 16px;border-radius:8px;font-size:12.5px;line-height:1.45;z-index:30;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+
+@media (max-width:760px){
+  :root{--gut:52px}
+  .top{padding-block:16px 12px;flex-wrap:wrap;gap:6px 16px}
+  .clock{font-size:11px;white-space:normal}
+  .bar{gap:8px 10px}
+  #range{order:-1;width:100%;margin:0}
+  .spacer{display:none}
+  .chip small{display:none}
+  .mc{min-height:70px;padding:4px}
+  .mchip{padding:2px}
+  .mchip .mt,.mchip .mx{display:none}
+  .ml{flex-direction:row;flex-wrap:wrap}
+  .mh span{padding:8px 4px;font-size:10px;letter-spacing:.06em}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="logo" aria-label="TJC Fam">TJC <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span> FAM</div>
+    <div class="clock" id="clock" aria-live="off"></div>
+  </header>
+  <div class="bar">
+    <div class="seg" role="tablist" aria-label="View">
+      <button class="pill vbtn" data-view="day" id="v-day" title="Day (D)" aria-label="Day view">D</button>
+      <button class="pill vbtn" data-view="week" id="v-week" title="Week (W)" aria-label="Week view">W</button>
+      <button class="pill vbtn" data-view="month" id="v-month" title="Month (M)" aria-label="Month view">M</button>
+    </div>
+    <div class="nav">
+      <button class="ico" id="prev" aria-label="Previous">&larr;</button>
+      <button class="pill" id="today">Today</button>
+      <button class="ico" id="next" aria-label="Next">&rarr;</button>
+    </div>
+    <h1 id="range"></h1>
+    <button class="pill done-btn" id="complete" hidden>Complete</button>
+    <div class="spacer"></div>
+    <div class="people" id="people"></div>
+    <button class="pill" id="sync"></button>
+    <button class="ico" id="setb" aria-label="Settings" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  </div>
+  <div id="notice" class="notice" hidden></div>
+  <main id="view"></main>
+</div>
+<div id="scrim" hidden></div>
+<aside id="panel" hidden aria-modal="true" role="dialog"></aside>
+<div id="toast" hidden role="status"></div>
+
+<script>
+(() => {
+"use strict";
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const p2 = n => String(n).padStart(2, "0");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const DAY = 864e5, MIN = 6e4;
+const sod = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const monday = d => { const x = sod(d); return addDays(x, -((x.getDay() + 6) % 7)); };
+const isWeekend = d => { const w = new Date(d).getDay(); return w === 0 || w === 6; };
+const weekday = (d, dir = 1) => { let x = sod(d); while (isWeekend(x)) x = addDays(x, dir); return x; };
+const sameDay = (a, b) => sod(a).getTime() === sod(b).getTime();
+const ymd = ms => { const d = new Date(ms); return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`; };
+const hm = ms => { const d = new Date(ms); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const DOW = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+const MON = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+const MONTHS = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })();
+const TZS = (() => { try { return new Date().toLocaleTimeString("en-US", {timeZoneName:"short"}).split(" ").pop(); } catch { return ""; } })();
+function t12(ms, short) {
+  const d = new Date(ms); let h = d.getHours(), m = d.getMinutes(); const ap = h < 12 ? (short ? "a" : " AM") : (short ? "p" : " PM");
+  h = h % 12 || 12; return short ? (m ? `${h}:${p2(m)}${ap}` : `${h}${ap}`) : `${h}:${p2(m)}${ap}`;
+}
+function isoLocal(ms) {
+  const d = new Date(ms), o = -d.getTimezoneOffset(), a = Math.abs(o);
+  return `${ymd(ms)}T${p2(d.getHours())}:${p2(d.getMinutes())}:00${o >= 0 ? "+" : "-"}${p2(a/60|0)}:${p2(a%60)}`;
+}
+const durTxt = m => { const h = Math.floor(m/60), r = Math.round(m%60); return (h ? h + "h" : "") + (r ? (h ? " " : "") + r + "m" : (h ? "" : "0m")); };
+const uid = () => "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const snap = m => Math.round(m / 15) * 15;
+const DS = 9 * 60, DE = 19 * 60; /* visible window: 9 AM – 7 PM */
+
+/* ---------- domain ---------- */
+const TYPES = ["SHOOT","EDIT","CALL","TRAVEL","DELIVERY","ADMIN"];
+function infer(t) {
+  t = String(t || "").toLowerCase();
+  if (/wedding|shoot|ceremony|reception|rehearsal|elopement|engagement|getting ready|first look|b-?roll|filming/.test(t)) return "SHOOT";
+  if (/deliver|export|upload|render|gallery|send|handoff/.test(t)) return "DELIVERY";
+  if (/edit|cut|color|grade|sound|audio|mix|cull|assembl|revision|sync|teaser|highlight/.test(t)) return "EDIT";
+  if (/call|consult|meet|zoom|chat|walkthrough|tour|interview/.test(t)) return "CALL";
+  if (/drive|flight|travel|\bfly|train|airport|load ?in|load ?out|hotel/.test(t)) return "TRAVEL";
+  return "ADMIN";
+}
+const isCheckin = t => /^\s*\[[^\]]+\]/.test(t || "");
+const stripBr = t => String(t || "").replace(/^\s*\[([^\]]+)\]/, "$1");
+const addBr = t => { t = stripBr(t).trim(); const m = t.match(/^(\S+)(.*)$/); return m ? `[${m[1]}]${m[2]}` : t; };
+const DEFAULT_INVITE = "jiwon@thisjanuary.com";
+const DEFAULT_PEOPLE = [
+  {id:"p0", name:"You", role:"Lead / director", calId:null, calName:"", visible:true},
+  {id:"p1", name:"Report 1", role:"Second shooter", calId:null, calName:"", visible:true},
+  {id:"p2", name:"Report 2", role:"Editor", calId:null, calName:"", visible:true},
+];
+
+const S = {
+  view: "week", anchor: weekday(new Date()),
+  people: DEFAULT_PEOPLE.map(p => ({...p})),
+  cfg: {samplesHidden:false, types:{}, invite: DEFAULT_INVITE, done:{}},
+  local: new Map(), g: new Map(), samples: new Map(),
+  H: 48, cols: [], colRects: [], drag: null, dirty: false,
+  panel: null, edit: null, loading: 0, loaded: new Map(), calErr: {}, access: {},
+  dbState: "checking", firstScroll: true, todayKey: ymd(Date.now()), lastMin: -1,
+};
+const person = id => S.people.find(p => p.id === id);
+const personOfCal = cal => S.people.find(p => p.calId && p.calId === cal);
+const evPerson = ev => ev.src === "gcal" ? (personOfCal(ev.calId) || {}).id : ev.person;
+const evType = ev => ev.src === "gcal" ? (S.cfg.types[ev.id] || infer(ev.title)) : (ev.type || infer(ev.title));
+const linked = () => S.people.some(p => p.calId);
+const showSamples = () => !S.cfg.samplesHidden && S.local.size === 0 && !linked();
+
+/* ---------- sample week (examples, never saved) ---------- */
+function buildSamples() {
+  const M = monday(new Date());
+  const at = (d, h, m = 0) => { const x = addDays(M, d); x.setHours(h, m, 0, 0); return x.getTime(); };
+  const rows = [
+    ["p0",0,9.5,10.5,"Consult: Okafor / Reyes inquiry","CALL"],
+    ["p0",0,13,17,"Hartley–Moss feature: story cut","EDIT"],
+    ["p0",1,10,11,"Timeline call: Chen–Park wedding","CALL"],
+    ["p0",2,14,15.5,"Bids: 2027 package pricing","ADMIN"],
+    ["p0",3,11,12,"Venue walkthrough: Georgetown","CALL"],
+    ["p0",4,17,19,"Rehearsal: Chen–Park, Arlington","SHOOT"],
+    ["p0",5,11,23.5,"Chen–Park wedding: lead camera","SHOOT"],
+    ["p1",0,10,12,"Gear check + card dump","ADMIN"],
+    ["p1",1,9,13,"Cull Ruiz ceremony footage","EDIT"],
+    ["p1",2,9,17,"Ruiz highlight: color pass","EDIT"],
+    ["p1",2,15,16,"Shot list review with lead","CALL"],
+    ["p1",4,15.5,17,"Drive to Arlington","TRAVEL"],
+    ["p1",5,12,23.5,"Chen–Park wedding: second angle","SHOOT"],
+    ["p2",0,9,17,"Hartley–Moss: sound mix","EDIT"],
+    ["p2",1,13,14,"Upload Patel highlight to gallery","DELIVERY"],
+    ["p2",2,10,12.5,"Patel feature: assembly","EDIT"],
+    ["p2",3,10,16,"Ruiz feature: revisions round 1","EDIT"],
+    ["p2",3,16,17,"Revision notes with couple","CALL"],
+    ["p2",5,14,22,"Larsen elopement: Shenandoah","SHOOT"],
+  ];
+  S.samples.clear();
+  rows.forEach(([p, d, a, b, t, ty], i) => {
+    const id = "s" + i;
+    S.samples.set(id, {id, src:"sample", person:p, title:t, type:ty, allDay:false,
+      start: at(d, Math.floor(a), Math.round((a % 1) * 60)), end: at(d, Math.floor(b), Math.round((b % 1) * 60)), sync:"ok"});
+  });
+}
+
+function allEvents() {
+  const out = [];
+  if (showSamples()) S.samples.forEach(e => out.push(e));
+  S.local.forEach(e => out.push(e));
+  S.g.forEach(e => { if (personOfCal(e.calId)) out.push(e); });
+  return out;
+}
+function findEv(id) { return S.local.get(id) || S.g.get(id) || S.samples.get(id); }
+
+/* ---------- ranges ---------- */
+function range() {
+  if (S.view === "day") { const a = sod(S.anchor); return [a, addDays(a, 1)]; }
+  if (S.view === "week") { const a = monday(S.anchor); return [a, addDays(a, 5)]; }
+  const f = new Date(S.anchor.getFullYear(), S.anchor.getMonth(), 1), a = monday(f);
+  const last = new Date(f.getFullYear(), f.getMonth() + 1, 0);
+  const rows = Math.ceil((((f.getDay() + 6) % 7) + last.getDate()) / 7);
+  return [a, addDays(a, rows * 7)];
+}
+function rangeLabel() {
+  const a = S.anchor;
+  if (S.view === "day") return `${DOW[a.getDay()]} · ${MON[a.getMonth()]} ${p2(a.getDate())}, ${a.getFullYear()}`;
+  if (S.view === "month") return `${MONTHS[a.getMonth()]} ${a.getFullYear()}`;
+  const s = monday(a), e = addDays(s, 4);
+  return s.getMonth() === e.getMonth()
+    ? `${MON[s.getMonth()]} ${p2(s.getDate())} – ${p2(e.getDate())}, ${e.getFullYear()}`
+    : `${MON[s.getMonth()]} ${p2(s.getDate())} – ${MON[e.getMonth()]} ${p2(e.getDate())}, ${e.getFullYear()}`;
+}
+function hoursFor(pid, a, b) {
+  let m = 0;
+  allEvents().forEach(e => { if (!e.allDay && evPerson(e) === pid) m += Math.max(0, Math.min(e.end, b) - Math.max(e.start, a)) / MIN; });
+  return m / 60;
+}
+
+/* ---------- render ---------- */
+function render() {
+  if (S.drag) { S.dirty = true; return; }
+  renderBar(); renderNotice();
+  if (S.view === "month") renderMonth(); else renderGrid();
+  if (S.panel === "edit") renderPanel();
+  if (typeof checkDue === "function" && $("#complete")) checkDue();
+}
+function renderBar() {
+  ["day","week","month"].forEach(v => { const b = $("#v-" + v); b.classList.toggle("on", S.view === v); b.setAttribute("aria-selected", S.view === v); });
+  $("#range").textContent = rangeLabel();
+  { const [ta, tb] = range(), now = Date.now(); $("#today").className = now >= +ta && now < +tb ? "pill on" : "pill"; }
+  const [a, b] = range();
+  $("#people").innerHTML = S.people.map(p => {
+    const h = hoursFor(p.id, +a, +b);
+    return `<button class="chip ${p.visible ? "" : "off"}" data-toggle="${p.id}" aria-pressed="${p.visible}" title="${p.visible ? "Hide" : "Show"} ${esc(p.name)}"><i class="sw ${p.id}"></i><b>${esc(p.name)}</b><small>${(Math.round(h * 2) / 2)}H</small></button>`;
+  }).join("");
+  const s = $("#sync"); let cls = "pill ghost", txt = "Local", tip = "Link Google calendars in Settings";
+  if (linked()) {
+    if ((G.state !== "ready" && G.state !== "checking") || (G.state === "ready" && !G.accounts.length)) { cls = "pill warn"; txt = "Sign in"; tip = gStateText(); }
+    else if (S.loading > 0 && !S.loaded.size) { cls = "pill"; txt = "Syncing"; tip = "Talking to Google Calendar"; }
+    else if (Object.values(S.calErr).some(Boolean)) { cls = "pill warn"; txt = "Check"; tip = "A calendar didn't load. Open Settings for details."; }
+    else { cls = "pill on"; txt = "Live"; tip = "Synced with Google Calendar. Click to refresh."; }
+  }
+  s.className = cls; s.innerHTML = `<span class="dot"></span>${txt}`; s.title = tip;
+}
+function renderNotice() {
+  const n = $("#notice"); let h = "", warn = false;
+  if (showSamples()) {
+    h = `<b>SAMPLE WEEK</b><span>These blocks show how the calendar works. Nothing here is saved.</span><span class="acts"><button class="pill ghost" data-act="fresh">Start fresh</button>${G.accounts.length ? `<button class="pill" data-act="settings">Link calendars</button>` : `<a class="pill" href="api/auth/start">Sign in with Google</a>`}</span>`;
+  } else if (G.state === "setup" || G.state === "error" || (G.state === "ready" && !G.accounts.length && linked())) {
+    warn = true; h = `<b>GOOGLE CALENDAR</b><span>${esc(gStateText())}</span><span class="acts"><a class="pill" href="api/auth/start">Sign in with Google</a></span>`;
+  } else {
+    const bad = S.people.filter(p => p.calId && S.calErr[p.calId]);
+    if (bad.length) { warn = true; h = `<b>NOT LOADED</b><span>${bad.map(p => `${esc(p.name)}: ${esc(S.calErr[p.calId])}`).join(" · ")}</span><span class="acts"><button class="pill" data-act="refresh">Try again</button></span>`; }
+    else if (S.dbState === "off" && S.local.size) { h = `<b>NOT SAVING</b><span>This browser is blocking storage, so blocks made only in this app disappear when you close the page. Link Google calendars to keep them.</span>`; }
+  }
+  n.hidden = !h; n.className = "notice" + (warn ? " warn" : ""); n.innerHTML = h;
+}
+
+function layoutCol(evs) {
+  evs.sort((a, b) => a._s - b._s || b._e - a._e);
+  let cluster = [], end = -1; const all = [];
+  const flush = () => { if (!cluster.length) return; const lanes = [];
+    cluster.forEach(e => { let i = lanes.findIndex(x => x <= e._s); if (i < 0) { i = lanes.length; lanes.push(0); } lanes[i] = e._e; e._lane = i; });
+    cluster.forEach(e => { e._n = lanes.length; }); all.push(...cluster); cluster = []; };
+  evs.forEach(e => { if (e._s >= end) flush(); cluster.push(e); end = Math.max(end, e._e); });
+  flush(); return all;
+}
+function evHTML(e, H, d0) {
+  const pid = evPerson(e), pp = person(pid);
+  const top = (e._s - DS) / 60 * H, ht = Math.max(15, (e._e - e._s) / 60 * H - 2);
+  const tiny = (e.end - e.start) <= 30 * MIN;
+  const xs = (e.end - e.start) <= 15 * MIN;   /* 15-minute blocks keep exactly their slot height; long titles end in "…" */
+  /* short blocks only grow to fit their title when they have a full-width day lane to themselves;
+     side-by-side or week-view blocks keep their slot height and cut long titles with "…" */
+  const grow = tiny && !xs && S.view === "day" && e._n === 1;
+  const htx = xs ? Math.max(10, (e._e - e._s) / 60 * H - 1) : tiny && !grow ? Math.max(14, (e._e - e._s) / 60 * H - 1) : ht;
+  const left = `calc(${e._lane / e._n * 100}% + 2px)`, width = `calc(${100 / e._n}% - 4px)`;
+  const flag = ""; void pp;
+  const time = `${t12(e.start, true)}–${t12(e.end, true)}`;
+  const ro = e.src === "gcal" && !canWrite(e.calId);
+  const ci = isCheckedIn(e) ? `<span class="ci" title="Checked in">Check in</span>` : "";
+  return `<div data-comment-target class="ev ${pid} ${isDue(e) ? "dueev" : ""} ${xs ? "xs" : ""} ${tiny && !grow ? "fit" : ""} ${isCheckedIn(e) && pid !== "p0" && !isDue(e) ? "chkg" : ""} ${tiny ? "tiny" : ""} ${ro ? "ro" : ""} ${e.declined ? "declined" : ""} ${S.edit && S.edit.id === e.id ? "sel" : ""}" data-id="${esc(e.id)}" style="top:${top}px;${grow ? "min-height" : "height"}:${htx}px;left:${left};width:${width}" title="${esc(e.title)} · ${time}${ro ? " · view only" : ""}">
+    <div class="ev-top"><div class="ev-k">${time}</div>${flag}${tiny ? "" : ci}</div><div class="ev-t">${esc(e.title)}</div>${tiny ? ci : ""}<div class="ev-h ev-ht" aria-hidden="true"></div><div class="ev-h" aria-hidden="true"></div></div>`;
+}
+function renderGrid() {
+  const view = $("#view"), old = view.querySelector(".tg-scroll");
+  const keep = !S.fitting && old && old.dataset.view === S.view ? {t: old.scrollTop, l: old.scrollLeft} : null;
+  const ppl = S.people.filter(p => p.visible);
+  if (!ppl.length) { view.innerHTML = `<div class="empty">Every lane is hidden.<br>Turn a person back on in the bar above.</div>`; return; }
+  const week = S.view === "week";
+  const days = week ? [...Array(5)].map((_, i) => addDays(monday(S.anchor), i)) : [sod(S.anchor)];
+  const H = S.H = S.fitH || 48;
+  S.cols = []; days.forEach(d => ppl.forEach((p, pi) => S.cols.push({d, p, pi})));
+  const N = S.cols.length, evs = allEvents();
+  let h = `<div class="tg-scroll" data-view="${S.view}"><div class="tg ${S.view}" style="--n:${N};--H:${H}px;grid-template-columns:var(--gut) repeat(${N},minmax(${week ? 44 : 0}px,1fr))">`;
+  if (week) {
+    h += `<div class="corner r1"></div>`;
+    days.forEach(d => { h += `<button class="dayh ${sameDay(d, Date.now()) ? "today" : ""}" data-goto="${+d}" style="grid-column:span ${ppl.length}" title="Open ${DOW[d.getDay()]} in day view"><span>${DOW[d.getDay()]}</span><b>${p2(d.getDate())}</b></button>`; });
+  }
+  h += `<div class="corner r2">${esc(TZS)}</div>`;
+  const [ra, rb] = range();
+  S.cols.forEach(c => {
+    h += week
+      ? `<div class="ph ${c.pi === 0 ? "dstart" : ""}" title="${esc(c.p.name)}"><i class="sw ${c.p.id}"></i></div>`
+      : `<div class="ph ${c.pi === 0 ? "dstart" : ""}"><i class="sw ${c.p.id}"></i><span class="stack"><span class="nm">${esc(c.p.name)}</span><span class="rl">${esc(c.p.role || "")}</span></span><span class="hrs">${Math.round(hoursFor(c.p.id, +ra, +rb) * 2) / 2}H</span></div>`;
+  });
+  h += `<div class="corner r3">ALL DAY</div>`;
+  S.cols.forEach(c => {
+    const a = +c.d, b = +addDays(c.d, 1);
+    const ad = evs.filter(e => e.allDay && evPerson(e) === c.p.id && e.start < b && e.end > a);
+    h += `<div class="adc ${c.pi === 0 ? "dstart" : ""}">${ad.map(e => `<button class="ad ev ${c.p.id}" style="position:static" data-ad="${esc(e.id)}" title="${esc(e.title)}">${esc(e.title)}</button>`).join("")}</div>`;
+  });
+  h += `<div class="gut">`;
+  for (let i = DS / 60; i <= DE / 60; i++) h += `<span class="${i === DS / 60 ? "first" : i === DE / 60 ? "last" : ""}" style="top:${(i * 60 - DS) / 60 * H}px">${i % 12 || 12} ${i < 12 ? "AM" : "PM"}</span>`;
+  h += `<span class="nowtag" id="nowtag" hidden></span></div>`;
+  S.cols.forEach((c, ci) => {
+    const a = +c.d, b = +addDays(c.d, 1);
+    c.ci = ci;
+    const list = evs.filter(e => !e.allDay && evPerson(e) === c.p.id && e.start < b && e.end > a)
+      .map(e => Object.assign(e, {_s: Math.max(DS, (e.start - a) / MIN), _e: Math.min(DE, (e.end - a) / MIN)})).filter(e => e._e > e._s);
+    h += `<div class="col ${c.pi === 0 ? "dstart" : ""} ${sameDay(c.d, Date.now()) ? "today" : ""}" style="grid-column:${ci + 2}" data-d="${a}" data-p="${c.p.id}">${layoutCol(list).map(e => evHTML(e, H)).join("")}</div>`;
+  });
+  h += `<div class="nowlayer" id="nowlayer"><i class="nowfaint"></i><i class="nowsolid"></i></div><div class="guides" id="guides" hidden><i><b></b></i><i><b></b></i></div></div></div>`;
+  view.innerHTML = h;
+  const sc = view.querySelector(".tg-scroll");
+  placeNow(true);
+  /* size the hours so 9 AM – 7 PM always fills the visible area, whatever the window size */
+  const gut = view.querySelector(".gut"), fit = Math.max(14, Math.floor((sc.clientHeight - gut.offsetTop - 2) / 10 * 100) / 100);
+  if (Math.abs(fit - H) > 0.5 && !S.fitting) { S.fitH = fit; S.fitting = true; renderGrid(); S.fitting = false; return; }
+  if (keep) { sc.scrollLeft = keep.l; }
+  else {
+    const now = new Date();
+    const inRange = S.cols.some(c => sameDay(c.d, now));
+    if (week && inRange) { const i = S.cols.findIndex(c => sameDay(c.d, now)); const colW = (sc.scrollWidth - 64) / N; sc.scrollLeft = Math.max(0, i * colW - sc.clientWidth / 3); }
+  }
+}
+function placeNow(force) {
+  const now = new Date(), m = now.getHours() * 60 + now.getMinutes();
+  if (!force && m === S.lastMin) return; S.lastMin = m;
+  const L = $("#nowlayer"); if (!L) return;
+  const idx = S.cols.map((c, i) => sameDay(c.d, now) ? i : -1).filter(i => i >= 0);
+  const tag = $("#nowtag");
+  if (!idx.length) { L.hidden = true; if (tag) tag.hidden = true; return; }
+  if (m < DS || m > DE) { L.hidden = true; if (tag) tag.hidden = true; return; }
+  L.hidden = false; const y = (m - DS) / 60 * S.H; L.style.setProperty("--y", y + "px");
+  const N = S.cols.length, sol = L.querySelector(".nowsolid");
+  sol.style.left = idx[0] / N * 100 + "%"; sol.style.width = idx.length / N * 100 + "%";
+  L.querySelector(".nowfaint").hidden = S.view === "day";
+  if (tag) { tag.hidden = false; tag.style.top = y + "px"; tag.textContent = t12(+now, true).toUpperCase(); }
+}
+
+function renderMonth() {
+  const view = $("#view"); const [a, b] = range();
+  const n = Math.round((b - a) / DAY), evs = allEvents().filter(e => person(evPerson(e))?.visible);
+  let h = `<div class="month"><div class="mh">${["MON","TUE","WED","THU","FRI"].map(d => `<span>${d}</span>`).join("")}</div><div class="mg" style="grid-template-rows:repeat(${n / 7},minmax(104px,1fr))">`;
+  for (let i = 0; i < n; i++) {
+    if (i % 7 >= 5) continue; /* weekdays only */
+    const d = addDays(a, i), ds = +d, de = +addDays(d, 1);
+    const list = evs.filter(e => e.start < de && e.end > ds).sort((x, y) => (y.allDay - x.allDay) || x.start - y.start);
+    const max = 3, shown = list.slice(0, max);
+    h += `<div class="mc ${d.getMonth() !== S.anchor.getMonth() ? "out" : ""} ${sameDay(d, Date.now()) ? "today" : ""}" data-d="${ds}">
+      <button class="mn" data-goto="${ds}" aria-label="Open ${d.toDateString()}">${d.getDate()}</button><div class="ml">`;
+    shown.forEach(e => { const pid = evPerson(e);
+      h += `<div data-comment-target class="mchip ${isDue(e) ? "dueev" : ""}" data-id="${esc(e.id)}" title="${esc(person(pid)?.name)} · ${esc(e.title)}"><i class="sw ${pid}"></i><span class="mt">${e.allDay ? "ALL" : t12(e.start, true)}</span><span class="mx">${esc(e.title)}</span></div>`; });
+    if (list.length > max) h += `<button class="more" data-goto="${ds}">+${list.length - max} MORE</button>`;
+    h += `</div></div>`;
+  }
+  view.innerHTML = h + `</div></div>`;
+}
+
+/* ---------- panels ---------- */
+function openPanel(kind) { S.panel = kind; $("#scrim").hidden = false; $("#panel").hidden = false; renderPanel(); }
+function closePanel() { S.panel = null; S.edit = null; $("#scrim").hidden = true; const P = $("#panel"); P.hidden = true; P.innerHTML = ""; P.dataset.for = ""; render(); }
+function openEditor(ev, isNew) {
+  const pid = evPerson(ev) || ev.person;
+  S.edit = {id: ev.id, isNew: !!isNew, d: {...ev, person: pid, type: evType(ev)}, armDel: false, };
+  $("#panel").dataset.for = "";
+  openPanel("edit"); render();
+  setTimeout(() => { const t = $("#f-title"); if (t && isNew) t.focus(); }, 30);
+}
+function renderPanel() {
+  const P = $("#panel");
+  if (S.panel === "edit") {
+    if (P.dataset.for === "edit:" + S.edit.id && P.querySelector("#f-title")) { updateSrc(); return; }
+    P.dataset.for = "edit:" + S.edit.id;
+    const d = S.edit.d, cur = findEv(S.edit.id), roEdit = !!(cur && cur.src === "gcal" && !canWrite(cur.calId));
+    P.innerHTML = `
+      <div class="pn-head"><span class="eyebrow">${S.edit.isNew ? "NEW BLOCK" : "EDIT BLOCK"}</span><button class="ico" data-act="close" aria-label="Close">&times;</button></div>
+      <label class="fld"><span>Title</span><input id="f-title" value="${esc(d.title)}" placeholder="GRVTY animation ref review" autocomplete="off"></label>
+      <label class="fld"><span>Person</span><select id="f-person">${S.people.map(p => `<option value="${p.id}" ${p.id === d.person ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+      <label class="fld"><span>Date</span><input type="date" id="f-date" value="${ymd(d.start)}"></label>
+      <div class="row2" id="f-times">
+        <label class="fld"><span>Start</span><input type="time" id="f-start" step="900" value="${hm(d.start)}"></label>
+        <label class="fld"><span>End</span><input type="time" id="f-end" step="900" value="${hm(d.end)}"></label>
+      </div>
+      <div class="dur" id="f-dur"></div>
+      <label class="chk"><input type="checkbox" id="f-allday" ${d.allDay ? "checked" : ""}> All day</label>
+      <div class="src" id="f-src"></div>
+      <div class="pn-foot">
+        ${roEdit || (cur && cur.declined) ? "" : `<div class="pn-row" role="group" aria-label="Title format">
+          <button class="btn fmt" id="fmt-ci" data-act="fmt" data-fmt="checkin" aria-pressed="false" title="[First] rest of title. Press again to clear.">Check in</button>
+          <button class="btn fmt" id="fmt-tb" data-act="fmt" data-fmt="timeblock" aria-pressed="false" title="First - rest of title. Press again to clear.">Timeblock</button>
+        </div>`}
+        <div class="pn-row">
+          ${roEdit ? "" : `<button class="btn solid" data-act="save">Save</button>`}
+          ${S.edit.isNew || roEdit ? "" : `<button class="btn danger" data-act="del" id="f-del">Delete</button>`}
+          <button class="btn" data-act="close">Cancel</button>
+        </div>
+      </div>`;
+    updateSrc(); updateDur(); updateFmt();
+  } else if (S.panel === "settings") {
+    P.dataset.for = "settings";
+    const cals = G.cals || [];
+    const used = key => S.people.find(p => p.calId === key);
+    const opts = p => G.accounts.map(acc => {
+      const list = cals.filter(c => c.acct === acc.email);
+      return `<optgroup label="${esc(acc.email)}">${list.map(c => { const u = used(c.key); const ro = !["owner","writer"].includes(c.accessRole);
+        return `<option value="${esc(c.key)}" ${p.calId === c.key ? "selected" : ""} ${u && u.id !== p.id ? "disabled" : ""}>${esc(c.name)}${ro ? " (view only)" : ""}${u && u.id !== p.id ? ` · ${esc(u.name)}` : ""}</option>`; }).join("")}</optgroup>`;
+    }).join("");
+    P.innerHTML = `
+      <div class="pn-head"><span class="eyebrow">SETTINGS</span><button class="ico" data-act="close" aria-label="Close">&times;</button></div>
+      <div class="sec" style="border-top:0;padding-top:0"><h3>GOOGLE ACCOUNTS</h3>
+        ${G.state === "setup" ? `<p class="help warnline" style="margin:0">${esc(gStateText())}</p>` : ""}
+        <div class="accts">
+          ${G.accounts.map(acc => { const bad = G.calErrors.find(x => x.acct === acc.email && x.error === "reauth"); const n = cals.filter(c => c.acct === acc.email).length;
+            return `<div class="acct"><span class="acct-dot ${bad ? "bad" : ""}"></span><span class="acct-main"><b>${esc(acc.email)}</b><small>${bad ? "Needs to sign in again" : `${n} calendar${n === 1 ? "" : "s"}`}</small></span>
+              ${bad ? `<a class="btn" href="api/auth/start?hint=${encodeURIComponent(acc.email)}">Sign in again</a>` : ""}<button class="btn danger" data-act="signout" data-email="${esc(acc.email)}">Sign out</button></div>`; }).join("")}
+        </div>
+        <a class="btn ${G.accounts.length ? "" : "solid"} addacct" href="api/auth/start">+ ${G.accounts.length ? "Add another Google account" : "Sign in with Google"}</a>
+        <p class="help" style="margin:0">Sign in to each Google account whose calendars you want here, for example <b>jiwon@thisjanuary.com</b> for your own lane and <b>jiwonbaeq@gmail.com</b> for Rishi's and Sasha's. Every lane below can then use a calendar from any of them.</p>
+      </div>
+      <div class="sec"><h3>TEAM</h3>
+        ${S.people.map(p => `<div class="prow">
+          <i class="sw ${p.id}"></i>
+          <label class="fld"><span>Name</span><input id="n-${p.id}" data-name="${p.id}" value="${esc(p.name)}" maxlength="24"></label>
+          <label class="fld"><span>Role</span><input id="r-${p.id}" data-role="${p.id}" value="${esc(p.role)}" maxlength="32"></label>
+          <label class="fld full"><span>Google calendar</span><select id="c-${p.id}" data-cal="${p.id}" ${G.accounts.length ? "" : "disabled"}>
+            <option value="">${G.accounts.length ? "This app only (not synced)" : "Sign in above to pick a calendar"}</option>
+            ${p.calId && !cals.some(c => c.key === p.calId) ? `<option value="${esc(p.calId)}" selected>${esc(p.calName || calPart(p.calId))} · ${esc(acctOf(p.calId))}</option>` : ""}
+            ${opts(p)}
+          </select></label>
+          ${p.calId && !canWrite(p.calId) ? `<p class="help warnline full" style="margin:0">View only: ${esc(acctOf(p.calId))} can see this calendar but not change it.</p>` : ""}
+        </div>`).join("")}
+        <p class="help" style="margin:0">Your reports' calendars show up here once they share them with one of your signed-in accounts (Google Calendar → <b>Settings and sharing</b> → <b>Share with specific people</b> → <b>Make changes to events</b>).</p>
+      </div>
+      <div class="sec"><h3>SHORTCUTS</h3>
+        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
+      </div>`;
+  }
+}
+/* Check in / Timeblock toggles reflect the title as typed */
+function updateFmt() {
+  const t = $("#f-title"); if (!t) return;
+  const st = {checkin: isCheckedIn({title: t.value}), timeblock: isTimeblock({title: t.value})};
+  document.querySelectorAll(".fmt").forEach(b => { const on = st[b.dataset.fmt]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+}
+function updateDur() {
+  const f = readForm(); const el = $("#f-dur"); if (!el || !f) return;
+  $("#f-times").style.opacity = f.allDay ? .4 : 1;
+  el.textContent = f.allDay ? "All day" : `${durTxt((f.end - f.start) / MIN)}${!sameDay(f.start, f.end - 1) ? " · ends next day" : ""}`;
+}
+function updateSrc() {
+  const el = $("#f-src"); if (!el || !S.edit) return;
+  const ev = findEv(S.edit.id), pid = $("#f-person")?.value || S.edit.d.person, p = person(pid);
+  let h = "";
+  if (S.edit.isNew) h = p && p.calId ? `Will be added to <b>${esc(p.calName || "their Google calendar")}</b>.` : `Saved in this app. Link ${esc(p?.name || "this person")}'s Google calendar in Settings to sync it.`;
+  else if (!ev) h = "";
+  else if (ev.src === "sample") h = "Sample block. Edits stay on screen and aren't saved.";
+  else if (ev.src === "gcal") {
+    h = `Google Calendar · <b>${esc(personOfCal(ev.calId)?.calName || ev.calId)}</b>${ev.sync === "pending" ? " · saving…" : " · synced"}`;
+    if (!canWrite(ev.calId)) h += `<span class="warnline">${esc(roText(personOfCal(ev.calId)))}</span>`;
+  }
+  else {
+    h = `Saved in this app only.`;
+    if (p && p.calId && G.state === "ready") h += `<button class="btn" data-act="push">Add to ${esc(p.name)}'s Google calendar</button>`;
+  }
+  if (ev && isCheckedIn(ev)) h += `<span>✓ Checked in</span>`;
+  el.innerHTML = h;
+}
+function readForm() {
+  const t = $("#f-title"); if (!t) return null;
+  const date = $("#f-date").value || ymd(S.edit.d.start), allDay = $("#f-allday").checked;
+  const [y, mo, da] = date.split("-").map(Number);
+  const base = new Date(y, mo - 1, da);
+  let start, end;
+  if (allDay) { start = +base; const days = Math.max(1, Math.round((sod(S.edit.d.end - 1) - sod(S.edit.d.start)) / DAY) + 1); end = +addDays(base, S.edit.d.allDay ? days : 1); }
+  else {
+    const [sh, sm] = ($("#f-start").value || "09:00").split(":").map(Number), [eh, em] = ($("#f-end").value || "10:00").split(":").map(Number);
+    const s = new Date(base); s.setHours(sh, sm, 0, 0); let e = new Date(base); e.setHours(eh, em, 0, 0);
+    if (+e <= +s) e = addDays(e, 1);
+    start = +s; end = +e;
+  }
+  return {title: t.value.trim() || "(No title)", person: $("#f-person").value, type: S.edit.d.type, start, end, allDay};
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 6500); }
+
+/* ---------- persistence: this browser's storage ---------- */
+const LS_CFG = "tjcfam.cfg.v1", LS_LOCAL = "tjcfam.local.v1";
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+const DB = {cfgT: null, localT: null};
+function cfgData() { return {people: S.people.map(({id, name, role, calId, calName, visible}) => ({id, name, role, calId: calId || null, calName: calName || "", visible})), samplesHidden: S.cfg.samplesHidden, types: S.cfg.types, done: S.cfg.done, view: S.view}; }
+function saveCfg() { clearTimeout(DB.cfgT); DB.cfgT = setTimeout(() => lsSet(LS_CFG, cfgData()), 300); }
+function saveLocals() { clearTimeout(DB.localT); DB.localT = setTimeout(() => lsSet(LS_LOCAL, [...S.local.values()].map(({id, person, title, type, start, end, allDay}) => ({id, person, title, type, start, end, allDay: !!allDay}))), 300); }
+function saveLocal() { saveLocals(); }
+function dropLocal(id) { S.local.delete(id); saveLocals(); }
+function dbInit() {
+  const x = lsGet(LS_CFG);
+  if (x) {
+    if (Array.isArray(x.people)) x.people.forEach(sp => { const p = person(sp.id); if (p) Object.assign(p, {name: sp.name || p.name, role: sp.role ?? p.role, calId: sp.calId || null, calName: sp.calName || "", visible: sp.visible !== false}); });
+    S.cfg.samplesHidden = !!x.samplesHidden; S.cfg.types = {...(x.types || {})}; S.cfg.done = {...(x.done || {})};
+    if (["day","week","month"].includes(x.view)) S.view = x.view;
+  }
+  (lsGet(LS_LOCAL) || []).forEach(e => { if (e && e.id && e.start) S.local.set(e.id, {...e, src: "local", sync: "ok"}); });
+  S.dbState = lsSet("tjcfam.probe", 1) ? "on" : "off";
+}
+
+/* ---------- Google Calendar through this site's own sign-in (api/…) ----------
+   A lane's calendar is stored as "account|calendarId", so lanes can use calendars from different Google accounts. */
+const calKey = (acct, id) => `${acct}|${id}`;
+const acctOf = k => String(k || "").split("|")[0];
+const calPart = k => String(k || "").split("|").slice(1).join("|");
+const G = {state: "checking", accounts: [], cals: null, calErrors: []};
+function gStateText() {
+  if (G.state === "checking") return "Checking your Google sign-in…";
+  if (G.state === "setup") return "The site's Google sign-in isn't set up yet. See the setup guide.";
+  if (G.state === "error") return "Couldn't reach the calendar server. Try again in a minute.";
+  if (!G.accounts.length) return "No Google account signed in yet.";
+  return G.cals ? `${G.accounts.length} account${G.accounts.length === 1 ? "" : "s"} signed in · ${G.cals.length} calendars` : "Signed in. Loading your calendars…";
+}
+class ApiError extends Error { constructor(status, body) { super(body?.message || `Request failed (${status})`); this.status = status; this.code = body?.error; this.acct = body?.acct; } }
+async function api(path, {method = "GET", query, body} = {}) {
+  const u = new URL("api/" + path, document.baseURI);
+  Object.entries(query || {}).forEach(([k, v]) => v != null && u.searchParams.set(k, v));
+  const r = await fetch(u, {method, credentials: "same-origin", headers: body ? {"content-type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ApiError(r.status, j);
+  return j;
+}
+function errMsg(e) {
+  if (e && e.code === "reauth") return `${e.acct || "That Google account"} needs to sign in again. Open Settings → Google accounts.`;
+  if (e && e.code === "setup") { G.state = "setup"; return gStateText(); }
+  if (e && e.status === 403) return "Google says this account doesn't have permission to change that calendar.";
+  if (e && e.status === 404) return "Google couldn't find that event or calendar anymore.";
+  if (e && (e.status === 429 || e.status >= 500)) return "Google Calendar didn't respond. Try again in a moment.";
+  if (e instanceof TypeError) return "Couldn't reach the calendar server. Check your connection.";
+  return (e && e.message) || "Something went wrong talking to Google Calendar.";
+}
+async function gInit() {
+  const q = new URLSearchParams(location.search);
+  const msg = {cancelled: "Google sign-in was cancelled.", expired: "That sign-in took too long. Try again.", failed: "Google sign-in didn't complete. Try again.",
+    notallowed: "That Google account isn't allowed on this site.", noscope: "Calendar access wasn't granted. Sign in again and tick the calendar box.",
+    norefresh: "Google didn't grant lasting access. Remove the app at myaccount.google.com/permissions and sign in again."}[q.get("signin")];
+  if (q.get("signedin")) toast(`Signed in as ${q.get("signedin")}.`); else if (msg) toast(msg);
+  if (q.has("signedin") || q.has("signin")) history.replaceState(null, "", location.pathname);
+  try { G.accounts = (await api("accounts")).accounts || []; G.state = "ready"; }
+  catch (e) { G.state = e.code === "setup" ? "setup" : "error"; render(); return; }
+  if (G.accounts.length) await loadCalendars();
+  render();
+  if (q.has("signedin")) openPanel("settings");
+  if (G.accounts.length && linked()) loadRange(true);
+}
+async function loadCalendars() {
+  try {
+    const j = await api("calendars");
+    G.cals = (j.calendars || []).map(c => ({...c, key: calKey(c.acct, c.id)}));
+    G.calErrors = j.errors || [];
+    G.cals.forEach(c => { S.access[c.key] = c.accessRole; });
+    G.calErrors.filter(x => x.error === "reauth").forEach(x => toast(`${x.acct} needs to sign in again. Open Settings → Google accounts.`));
+  } catch (e) { toast(errMsg(e)); }
+}
+async function gList(calId, a, b) {
+  const j = await api("events", {query: {acct: acctOf(calId), cal: calPart(calId), min: isoLocal(a), max: isoLocal(b)}});
+  return {events: j.events || [], role: j.accessRole};
+}
+function parseG(r, calId) {
+  if (!r || typeof r !== "object") return null;
+  const gid = r.id; if (!gid || r.status === "cancelled") return null;
+  const tt = x => { if (!x) return null; if (x.dateTime) return {v: x.dateTime, ad: false}; if (x.date) return {v: x.date, ad: true}; return null; };
+  const s = tt(r.start), e = tt(r.end); if (!s) return null;
+  const ms = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)).getTime() : Date.parse(v);
+  const st = ms(s.v); if (isNaN(st)) return null;
+  let en = e ? ms(e.v) : NaN; if (!(en > st)) en = st + (s.ad ? DAY : 30 * MIN);
+  const att = Array.isArray(r.attendees) ? r.attendees : [];
+  const me = att.find(x => x.self);
+  return {id: calId + "::" + gid, gId: gid, calId, src: "gcal", title: r.summary || "(No title)", start: st, end: en, allDay: s.ad, sync: "ok",
+    guests: att.map(x => String(x.email || "").toLowerCase()), declined: !!(me && me.responseStatus === "declined")};
+}
+const timeBody = ev => ev.allDay
+  ? {start: {date: ymd(ev.start)}, end: {date: ymd(ev.end)}}
+  : {start: {dateTime: isoLocal(ev.start), timeZone: TZ}, end: {dateTime: isoLocal(ev.end), timeZone: TZ}};
+async function gCreate(calId, ev, extra) {
+  const j = await api("events", {method: "POST", body: {acct: acctOf(calId), cal: calPart(calId), event: {summary: ev.title, ...timeBody(ev), ...(extra || {})}}});
+  return j.event && j.event.id;
+}
+async function gDelete(calId, gid) { await api("events", {method: "DELETE", query: {acct: acctOf(calId), cal: calPart(calId), id: gid}}); }
+async function gUpdate(calId, gid, ev, extra) {
+  const add = (extra && extra.addedAttendees || []).map(a => a.email);
+  await api("events", {method: "PATCH", body: {acct: acctOf(calId), cal: calPart(calId), id: gid, patch: {summary: ev.title, ...timeBody(ev)}, addAttendees: add}});
+  return gid;
+}
+async function signOut(email) {
+  try { G.accounts = (await api("auth/signout", {method: "POST", body: {email}})).accounts || []; }
+  catch (e) { toast(errMsg(e)); return; }
+  for (const p of S.people) if (p.calId && acctOf(p.calId) === email) { for (const [k, ev] of S.g) if (ev.calId === p.calId) S.g.delete(k); p.calId = null; p.calName = ""; }
+  saveCfg(); await loadCalendars(); renderPanel(); render();
+  toast(`Signed out of ${email}.`);
+}
+const canWrite = calId => !calId || !S.access[calId] || S.access[calId] === "owner" || S.access[calId] === "writer";
+const CI = "jiwon@thisjanuary.com";
+const isCheckedIn = ev => /^\[[^\]]*\]/.test(String(ev.title || "").trim());
+/* title formats: check-in "[GRVTY] Reference Hunt", timeblock "GRVTY - Reference Hunt". Each converts from the other. */
+function plainTitle(t) {
+  t = String(t || "").trim(); let m;
+  if ((m = t.match(/^\[([^\]]+)\]\s*([\s\S]*)$/))) return `${m[1]} ${m[2]}`.trim();
+  if ((m = t.match(/^(\S+)\s+-\s+([\s\S]*)$/))) return `${m[1]} ${m[2]}`.trim();
+  return t;
+}
+function bracketFirst(t) { t = plainTitle(t); const m = t.match(/^(\S+)(\s[\s\S]*)?$/); return m ? `[${m[1]}]${m[2] || ""}` : t; }
+function dashFirst(t) { t = plainTitle(t); const m = t.match(/^(\S+)\s+([\s\S]+)$/); return m ? `${m[1]} - ${m[2]}` : t; }
+const isTimeblock = ev => !isCheckedIn(ev) && /^\S+\s+-\s+\S/.test(String(ev.title || "").trim());
+/* only check-ins on your own lane invite the work account; report lanes never do */
+const invitesFor = pid => pid === "p0";
+const inviteExtra = (calId, title) => isCheckedIn({title}) && invitesFor((personOfCal(calId) || {}).id) && calPart(calId).toLowerCase() !== CI ? {attendees: [{email: CI}]} : undefined;
+async function checkIn(ev) {
+  const title = bracketFirst(ev.title);
+  if (ev.src === "sample") { ev.title = title; render(); toast("Checked in."); return; }
+  if (ev.src === "local") {
+    const p = person(ev.person); ev.title = title;
+    if (p && p.calId && G.state === "ready" && canWrite(p.calId)) { await pushLocal(ev); return; }
+    saveLocal(ev); render();
+    toast(invitesFor(ev.person) ? `Checked in. The invite to ${CI} goes out once your lane is linked to a Google calendar you can edit.` : "Checked in."); return;
+  }
+  if (!canWrite(ev.calId)) { toast(roText(personOfCal(ev.calId))); return; }
+  if (G.state !== "ready") { toast(gStateText()); return; }
+  const invite = invitesFor((personOfCal(ev.calId) || {}).id) && calPart(ev.calId).toLowerCase() !== CI && !(ev.guests || []).includes(CI);
+  if (!ev._good) ev._good = snapshot(ev);
+  ev.title = title; if (invite) ev.guests = [...(ev.guests || []), CI];
+  render();
+  pushLater(ev, invite ? {addedAttendees: [{email: CI}]} : undefined);
+}
+const roText = p => `${p ? p.name + "'s" : "This"} calendar (${p && p.calName || "linked calendar"}) is view-only for ${p && p.calId ? acctOf(p.calId) : "that account"}, so it can't be changed from here. Sign in with an account that can edit it, or ask for "Make changes to events" access.`;
+
+/* ---------- instant edits: the screen changes at once, Google catches up in the background ----------
+   Every edit is applied locally first. Writes to Google run per event, one at a time, and a burst of edits
+   to the same event collapses into a single write of its latest state. While an event is being written
+   (and for a short grace period after), refreshes from Google never overwrite or resurrect it. */
+const LOCK_MS = 20000;
+const lock = ev => { ev.lockUntil = Date.now() + LOCK_MS; };
+const locked = ev => !!ev && (ev.inflight > 0 || (ev.lockUntil || 0) > Date.now());
+S.tomb = new Map(); /* google ids just deleted or moved away: ignore stale copies for a while */
+const tombstone = id => S.tomb.set(id, Date.now() + LOCK_MS);
+const isTomb = id => (S.tomb.get(id) || 0) > Date.now();
+const snapshot = ev => ({title: ev.title, start: ev.start, end: ev.end, allDay: ev.allDay, calId: ev.calId, homeCal: ev.homeCal || ev.calId, gId: ev.gId, id: ev.id});
+function pushLater(ev, extra) {
+  if (!ev._good) ev._good = snapshot(ev);
+  const ticket = ev._want = (ev._want || 0) + 1;
+  ev.inflight = (ev.inflight || 0) + 1; lock(ev);
+  ev._chain = (ev._chain || Promise.resolve()).then(async () => {
+    if (ticket !== ev._want && !extra) return;          /* a newer edit will send the latest state */
+    const home = ev.homeCal || ev.calId;
+    if (ev.calId === home) {
+      await gUpdate(home, ev.gId, ev, extra);
+    } else {                                            /* moved to another person's lane */
+      const nid = await gCreate(ev.calId, ev, inviteExtra(ev.calId, ev.title));
+      const oldId = ev.id, oldG = ev.gId;
+      tombstone(oldId);
+      if (nid) { S.g.delete(oldId); ev.gId = nid; ev.id = ev.calId + "::" + nid; S.g.set(ev.id, ev); if (S.cfg.types[oldId]) { S.cfg.types[ev.id] = S.cfg.types[oldId]; delete S.cfg.types[oldId]; saveCfg(); } }
+      ev.homeCal = ev.calId;
+      try { await gDelete(home, oldG); }
+      catch (e) { toast(`Moved to ${personOfCal(ev.calId)?.name || "the new"} calendar, but the original couldn't be removed from ${personOfCal(home)?.name || "the old"} calendar. ${errMsg(e)}`); }
+    }
+    ev._good = snapshot(ev);
+  }).catch(e => {
+    const g = ev._good || {};
+    Object.assign(ev, {title: g.title, start: g.start, end: g.end, allDay: g.allDay, calId: g.homeCal, homeCal: g.homeCal});
+    toast(`Google Calendar didn't accept that change, so the block went back. ${errMsg(e)}`);
+    render();
+  }).finally(() => { ev.inflight--; lock(ev); });
+  return ev._chain;
+}
+
+async function loadRange(force) {
+  if (G.state !== "ready" || !G.accounts.length || !linked()) return;
+  const [a, b] = range();
+  await Promise.all(S.people.filter(p => p.calId).map(p => loadCal(p.calId, +a, +b, force)));
+}
+async function loadCal(calId, a, b, force) {
+  const k = `${calId}|${a}|${b}`;
+  if (!force && S.loaded.has(k) && Date.now() - S.loaded.get(k) < 60000) return;
+  S.loading++; if (!S.loaded.size) renderBar();
+  try {
+    const {events: list, role} = await gList(calId, a, b);
+    if (role) S.access[calId] = role;
+    for (const [id, ev] of S.g) if ((ev.homeCal || ev.calId) === calId && ev.end > a && ev.start < b && !locked(ev) && !ev._tmp) S.g.delete(id);
+    list.forEach(r => { const ev = parseG(r, calId); if (!ev || isTomb(ev.id) || locked(S.g.get(ev.id))) return; S.g.set(ev.id, ev); });
+    const owner = personOfCal(calId);
+    if (owner) for (const [lid, le] of [...S.local]) if (le.person === owner.id && !locked(le)) dropLocal(lid);
+    S.loaded.set(k, Date.now()); S.calErr[calId] = null;
+  } catch (e) { S.calErr[calId] = errMsg(e); }
+  S.loading--; render();
+}
+function refreshCal(calId) { S.loaded.forEach((_, k) => { if (k.startsWith(calId + "|")) S.loaded.delete(k); }); const [a, b] = range(); loadCal(calId, +a, +b, true); }
+
+/* ---------- changes ---------- */
+function hideSamples() { if (!S.cfg.samplesHidden) { S.cfg.samplesHidden = true; saveCfg(); } }
+async function createEvent(d) {
+  hideSamples();
+  if (d.checkIn) d.title = bracketFirst(d.title);
+  const p = person(d.person);
+  if (p && p.calId && G.state === "ready" && !canWrite(p.calId)) { toast(roText(p) + " The block wasn't saved."); render(); return; }
+  if (p && p.calId && G.state === "ready") {
+    const ev = {id: "tmp" + uid(), src: "gcal", calId: p.calId, homeCal: p.calId, gId: null, title: d.title, start: d.start, end: d.end, allDay: d.allDay, sync: "ok", _tmp: true, inflight: 1};
+    lock(ev); S.g.set(ev.id, ev); render();
+    ev._chain = gCreate(p.calId, d, inviteExtra(p.calId, d.title)).then(gid => {
+      const tmpId = ev.id;
+      if (gid) { S.g.delete(tmpId); ev.gId = gid; ev.id = p.calId + "::" + gid; S.g.set(ev.id, ev); }
+      ev._tmp = false; ev._good = snapshot(ev);
+      if (S.edit && S.edit.id === tmpId) S.edit.id = ev.id;
+      if (!gid) setTimeout(() => refreshCal(p.calId), 1500);
+    }, e => {
+      S.g.delete(ev.id); render();
+      toast(`Couldn't add "${d.title}" to ${p.name}'s Google calendar, so it was removed. ${errMsg(e)}`);
+    }).catch(() => {}).finally(() => { ev.inflight--; lock(ev); });
+    return;
+  }
+  const ev = {id: uid(), src: "local", person: d.person, title: d.title, type: d.type, start: d.start, end: d.end, allDay: d.allDay, sync: "ok"};
+  S.local.set(ev.id, ev); saveLocal(ev); render();
+  if (d.checkIn && invitesFor(d.person) && !(p && p.calId && canWrite(p.calId))) toast(`Checked in. The invite to ${CI} goes out once your lane is linked to a Google calendar you can edit.`);
+}
+async function applyChange(ev, patch) {
+  if (ev.src === "sample") { Object.assign(ev, patch); render(); return; }
+  if (ev.src === "local") {
+    const toP = person(patch.person || ev.person), fromP = person(ev.person);
+    Object.assign(ev, patch);
+    if (patch.person && patch.person !== fromP?.id && toP && toP.calId && G.state === "ready" && canWrite(toP.calId)) { await pushLocal(ev); return; }
+    saveLocal(ev); render(); return;
+  }
+  // Google event: apply on screen now, write to Google in the background
+  const toP = person(patch.person || evPerson(ev)), home = ev.homeCal || ev.calId;
+  if (patch.type) { if (patch.type === infer(patch.title || ev.title)) delete S.cfg.types[ev.id]; else S.cfg.types[ev.id] = patch.type; saveCfg(); }
+  const {type, person: _p, ...g} = patch;
+  const changed = ["title","start","end","allDay"].some(k => k in g && g[k] !== ev[k]) || (toP && toP.calId !== ev.calId);
+  if (!changed) { render(); return; }
+  if (!canWrite(home)) { toast(roText(personOfCal(home))); render(); return; }
+  if (toP && toP.calId && !canWrite(toP.calId)) { toast(roText(toP)); render(); return; }
+  if (!toP || !toP.calId) { toast(`${toP ? toP.name : "That person"} has no Google calendar linked. Link one in Settings before moving Google events to their lane.`); render(); return; }
+  if (G.state !== "ready") { toast(gStateText()); render(); return; }
+  if (!ev._good) ev._good = snapshot(ev);
+  Object.assign(ev, g); ev.homeCal = home; ev.calId = toP.calId;
+  render();
+  pushLater(ev);
+}
+async function pushLocal(ev) {
+  const p = person(ev.person); if (!p || !p.calId) return;
+  if (!canWrite(p.calId)) { saveLocal(ev); render(); toast(roText(p)); return; }
+  ev.sync = "pending"; render();
+  try {
+    const gid = await gCreate(p.calId, ev, inviteExtra(p.calId, ev.title));
+    dropLocal(ev.id);
+    if (gid) { const id = p.calId + "::" + gid; S.g.set(id, {id, gId: gid, calId: p.calId, src: "gcal", title: ev.title, start: ev.start, end: ev.end, allDay: ev.allDay, sync: "ok"}); if (ev.type !== infer(ev.title)) { S.cfg.types[id] = ev.type; saveCfg(); } }
+    toast(`Added to ${p.name}'s Google calendar${inviteExtra(p.calId, ev.title) ? ` and invited ${CI}` : ""}.`);
+    refreshCal(p.calId);
+  } catch (e) { ev.sync = "ok"; saveLocal(ev); toast(`Couldn't add it to ${p.name}'s Google calendar. ${errMsg(e)}`); }
+  render();
+}
+async function deleteEvent(ev) {
+  if (ev.src === "sample") { S.samples.delete(ev.id); render(); return; }
+  if (ev.src === "local") { dropLocal(ev.id); render(); return; }
+  if (!canWrite(ev.calId)) { toast(roText(personOfCal(ev.calId))); return; }
+  if (G.state !== "ready") { toast(gStateText()); return; }
+  S.g.delete(ev.id); tombstone(ev.id); render();
+  const run = () => gDelete(ev.homeCal || ev.calId, ev.gId);
+  (ev._chain || Promise.resolve()).then(run).then(() => { delete S.cfg.types[ev.id]; })
+    .catch(e => { S.g.set(ev.id, ev); S.tomb.delete(ev.id); render(); toast(`Couldn't delete it from Google Calendar, so it's back. ${errMsg(e)}`); });
+}
+
+/* ---------- pointer: time grid ---------- */
+function refreshRects() { S.colRects = [...document.querySelectorAll(".tg .col")].map(el => ({el, r: el.getBoundingClientRect(), d: +el.dataset.d, p: el.dataset.p})); }
+function colAt(x) { const R = S.colRects; for (const c of R) if (x >= c.r.left && x < c.r.right) return c; return x < R[0].r.left ? R[0] : R[R.length - 1]; }
+const minAt = (c, y) => DS + (y - c.r.top) / S.H * 60;
+function autoscroll(e) {
+  const sc = $(".tg-scroll"); if (!sc) return; const r = sc.getBoundingClientRect(), edge = 40;
+  if (e.clientX < r.left + 64 + edge) sc.scrollLeft -= 10; else if (e.clientX > r.right - edge) sc.scrollLeft += 10;
+}
+function startDrag(e, ev, el, mode) {
+  e.preventDefault(); refreshRects();
+  const host = S.colRects.find(c => c.el === el.parentElement) || colAt(e.clientX);
+  const sMin = (ev.start - host.d) / MIN, dur = (ev.end - ev.start) / MIN;
+  S.drag = {mode, ev, el, x0: e.clientX, y0: e.clientY, moved: false, grab: minAt(host, e.clientY) - sMin, dur, d: host.d, p: host.p, sMin, eMin: sMin + dur};
+  listen();
+}
+function startCreate(e, colEl) {
+  e.preventDefault(); refreshRects();
+  const c = S.colRects.find(x => x.el === colEl); if (!c) return;
+  const m = Math.max(DS, Math.min(DE - 15, Math.floor(minAt(c, e.clientY) / 15) * 15));
+  const el = document.createElement("div"); el.className = "ev ghost " + c.p; el.style.cssText = `left:2px;width:calc(100% - 4px);top:${(m - DS) / 60 * S.H}px;height:${15 / 60 * S.H}px`;
+  colEl.appendChild(el);
+  S.drag = {mode: "create", c, el, a: m, s: m, e: m + 15, moved: false, x0: e.clientX, y0: e.clientY};
+  listen();
+}
+function listen() { window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp); window.addEventListener("pointercancel", onUp); }
+function unlisten() { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); window.removeEventListener("pointercancel", onUp); }
+function showGuides(a, b) {
+  const g = $("#guides"); if (!g) return; g.hidden = false;
+  const [l1, l2] = g.querySelectorAll("i"), y = m => (Math.max(DS, Math.min(DE, m)) - DS) / 60 * S.H + "px";
+  l1.style.top = y(a); l2.style.top = y(b);
+  const base = +sod(Date.now());
+  l1.firstChild.textContent = t12(base + a * MIN, true).toUpperCase(); l2.firstChild.textContent = t12(base + b * MIN, true).toUpperCase();
+}
+function hideGuides() { const g = $("#guides"); if (g) g.hidden = true; }
+function onMove(e) {
+  const D = S.drag; if (!D) return;
+  if (!D.moved) { if (Math.hypot(e.clientX - D.x0, e.clientY - D.y0) < 5) return; D.moved = true; document.body.classList.add("is-dragging");
+    if (D.mode !== "create" && D.mode !== "mmove") { D.el.classList.add("dragging"); D.el.style.left = "2px"; D.el.style.width = "calc(100% - 4px)"; D.el.style.minHeight = "0"; } }
+  if (D.mode === "mmove") return monthMove(e);
+  autoscroll(e); refreshRects();
+  if (D.mode === "create") {
+    const c = D.c = S.colRects.find(x => x.el === D.c.el) || D.c;
+    const m = Math.max(DS, Math.min(DE, snap(minAt(c, e.clientY))));
+    D.s = Math.min(D.a, m); D.e = Math.max(D.a + 15, m); if (m < D.a) { D.s = m; D.e = D.a + 15; }
+    D.el.style.top = (D.s - DS) / 60 * S.H + "px"; D.el.style.height = (D.e - D.s) / 60 * S.H + "px";
+    D.el.innerHTML = `<div class="ev-k">${t12(D.c.d + D.s * MIN, true)}–${t12(D.c.d + D.e * MIN, true)}</div>`;
+    showGuides(D.s, D.e);
+    return;
+  }
+  if (D.mode === "move") {
+    const c = colAt(e.clientX);
+    let s = snap(minAt(c, e.clientY) - D.grab); s = Math.max(DS, Math.min(DE - Math.min(D.dur, DE - DS), s));
+    D.sMin = s; D.eMin = s + D.dur; D.d = c.d; D.p = c.p;
+    if (D.el.parentElement !== c.el) { c.el.appendChild(D.el); D.el.className = D.el.className.replace(/\bp\d\b/, c.p); }
+  } else if (D.mode === "resizeTop") {
+    const c = S.colRects.find(x => x.el === D.el.parentElement) || colAt(e.clientX);
+    const st = Math.min(D.eMin - 15, Math.max(DS, snap(minAt(c, e.clientY)))); D.sMin = st; D.dur = D.eMin - st;
+  } else {
+    const c = S.colRects.find(x => x.el === D.el.parentElement) || colAt(e.clientX);
+    const en = Math.max(D.sMin + 15, Math.min(DE, snap(minAt(c, e.clientY)))); D.eMin = en; D.dur = en - D.sMin;
+  }
+  showGuides(D.sMin, D.eMin);
+  D.el.style.top = (Math.max(DS, D.sMin) - DS) / 60 * S.H + "px";
+  D.el.style.height = Math.max(15, (Math.min(DE, D.eMin) - Math.max(DS, D.sMin)) / 60 * S.H - 2) + "px";
+  const k = D.el.querySelector(".ev-k"); if (k) k.textContent = `${t12(D.d + D.sMin * MIN, true)}–${t12(D.d + D.eMin * MIN, true)}`;
+}
+function onUp() {
+  unlisten(); const D = S.drag; S.drag = null; document.body.classList.remove("is-dragging"); hideGuides();
+  if (!D) return;
+  if (D.mode === "mmove") return monthUp(D);
+  if (D.mode === "create") {
+    D.el.remove();
+    if (D.moved) openEditor({id: "new", src: "new", person: D.c.p, title: "", type: "EDIT", start: D.c.d + D.s * MIN, end: D.c.d + D.e * MIN, allDay: false}, true);
+    else if (S.dirty) { S.dirty = false; render(); }
+    return;
+  }
+  if (!D.moved) { if (S.dirty) { S.dirty = false; render(); } openEditor(D.ev); return; }
+  const start = D.d + D.sMin * MIN, end = D.d + D.eMin * MIN;
+  S.dirty = false;
+  if (start === D.ev.start && end === D.ev.end && D.p === evPerson(D.ev)) { render(); return; }
+  applyChange(D.ev, {start, end, person: D.p});
+}
+
+/* ---------- pointer: month ---------- */
+function monthDown(e, chip) {
+  const ev = findEv(chip.dataset.id); if (!ev) return;
+  if (e.pointerType === "touch") { S.drag = {mode: "mmove", ev, el: chip, moved: false, x0: e.clientX, y0: e.clientY, touch: true}; listen(); return; }
+  e.preventDefault();
+  S.drag = {mode: "mmove", ev, el: chip, moved: false, x0: e.clientX, y0: e.clientY, from: +chip.closest(".mc").dataset.d, target: null};
+  listen();
+}
+function monthMove(e) {
+  const D = S.drag; if (D.touch) { S.drag = null; unlisten(); return; }
+  D.el.classList.add("dragging"); D.el.style.transform = `translate(${e.clientX - D.x0}px,${e.clientY - D.y0}px)`;
+  const t = document.elementFromPoint(e.clientX, e.clientY)?.closest(".mc");
+  if (D.target && D.target !== t) D.target.classList.remove("drop");
+  if (t) t.classList.add("drop"); D.target = t;
+}
+function monthUp(D) {
+  if (D.target) D.target.classList.remove("drop");
+  if (!D.moved) { openEditor(D.ev); return; }
+  D.el.style.transform = ""; D.el.classList.remove("dragging");
+  if (!D.target) { render(); return; }
+  const days = Math.round((+D.target.dataset.d - D.from) / DAY);
+  if (!days) { render(); return; }
+  applyChange(D.ev, {start: +addDays(D.ev.start, days), end: +addDays(D.ev.end, days)});
+}
+
+/* ---------- events ---------- */
+$("#view").addEventListener("pointerdown", e => {
+  if (e.button > 0 || S.drag) return;
+  const chip = e.target.closest(".mchip"); if (chip) return monthDown(e, chip);
+  if (e.target.closest(".ad, .ci")) return;
+  const evEl = e.target.closest(".col .ev");
+  if (evEl) { const ev = findEv(evEl.dataset.id); if (ev) startDrag(e, ev, evEl, e.target.closest(".ev-ht") ? "resizeTop" : e.target.closest(".ev-h") ? "resize" : "move"); return; }
+  const col = e.target.closest(".col");
+  if (col && e.pointerType !== "touch") startCreate(e, col);
+});
+$("#view").addEventListener("dblclick", e => {
+  const col = e.target.closest(".col"); if (!col || e.target.closest(".ev")) return;
+  const r = col.getBoundingClientRect(), m = Math.max(DS, Math.min(DE - 60, DS + Math.floor((e.clientY - r.top) / S.H * 2) * 30));
+  openEditor({id: "new", src: "new", person: col.dataset.p, title: "", type: "EDIT", start: +col.dataset.d + m * MIN, end: +col.dataset.d + (m + 60) * MIN, allDay: false}, true);
+});
+$("#view").addEventListener("click", e => {
+  const ci = e.target.closest("[data-ci]"); if (ci) { const ev = findEv(ci.dataset.ci); if (ev) checkIn(ev); return; }
+  const g = e.target.closest("[data-goto]"); if (g) { S.view = "day"; S.anchor = sod(+g.dataset.goto); saveCfg(); render(); loadRange(); return; }
+  const ad = e.target.closest("[data-ad]"); if (ad) { const ev = findEv(ad.dataset.ad); if (ev) openEditor(ev); return; }
+  const mc = e.target.closest(".mc"); if (mc && !e.target.closest(".mchip")) { S.view = "day"; S.anchor = sod(+mc.dataset.d); saveCfg(); render(); loadRange(); }
+});
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+function setView(v) { if (S.view === v) return; S.view = v; saveCfg(); render(); loadRange(); }
+function step(n) {
+  const a = S.anchor;
+  S.anchor = S.view === "day" ? weekday(addDays(a, n), n) : S.view === "week" ? addDays(a, 7 * n) : new Date(a.getFullYear(), a.getMonth() + n, 1);
+  render(); loadRange();
+}
+$("#prev").onclick = () => step(-1);
+$("#next").onclick = () => step(1);
+$("#today").onclick = () => { S.anchor = weekday(new Date()); const sc = $(".tg-scroll"); if (sc) sc.dataset.view = ""; render(); loadRange(); };
+$("#people").addEventListener("click", e => { const b = e.target.closest("[data-toggle]"); if (!b) return; const p = person(b.dataset.toggle); p.visible = !p.visible; saveCfg(); render(); });
+$("#sync").onclick = () => { if (!G.accounts.length || !linked()) openPanel("settings"); else if (G.state === "ready") { loadCalendars(); loadRange(true); } else openPanel("settings"); };
+$("#setb").onclick = () => openPanel("settings");
+function newBlock() {
+  const now = new Date(), base = sod(S.anchor); const h = sameDay(base, now) ? Math.min(22, now.getHours() + 1) : 9;
+  const s = new Date(base); s.setHours(h, 0, 0, 0);
+  const pid = (S.people.find(p => p.visible) || S.people[0]).id;
+  openEditor({id: "new", src: "new", person: pid, title: "", type: "EDIT", start: +s, end: +s + 60 * MIN, allDay: false}, true);
+}
+$("#scrim").onclick = closePanel;
+$("#notice").addEventListener("click", e => {
+  const a = e.target.closest("[data-act]")?.dataset.act;
+  if (a === "fresh") { hideSamples(); render(); }
+  if (a === "settings") openPanel("settings");
+  if (a === "refresh") loadRange(true);
+});
+const P = $("#panel");
+P.addEventListener("input", e => {
+  const t = e.target;
+  if (S.panel === "edit") { updateDur(); updateFmt(); if (t.id === "f-person") updateSrc(); return; }
+  if (t.dataset.name) { person(t.dataset.name).name = t.value.trim() || "Unnamed"; saveCfg(); renderBar(); if (S.view !== "month") renderGrid(); }
+  if (t.dataset.role) { person(t.dataset.role).role = t.value.trim(); saveCfg(); if (S.view === "day") renderGrid(); }
+});
+P.addEventListener("change", e => {
+  const t = e.target;
+  if (S.panel === "edit") { updateDur(); updateSrc(); return; }
+  if (t.dataset.cal) {
+    const p = person(t.dataset.cal), id = t.value || null;
+    const prev = p.calId; p.calId = id; p.calName = id ? ((G.cals || []).find(c => c.key === id)?.name || calPart(id)) : "";
+    if (prev) { for (const [k, ev] of S.g) if (ev.calId === prev) S.g.delete(k); delete S.calErr[prev]; }
+    if (id) hideSamples();
+    saveCfg(); renderPanel(); render(); loadRange(true);
+  }
+});
+P.addEventListener("click", async e => {
+  const a = e.target.closest("[data-act]")?.dataset.act; if (!a) return;
+  if (a === "close") return closePanel();
+  if (a === "signout") {
+    const b = e.target.closest("[data-email]");
+    if (!b.classList.contains("arm")) { b.classList.add("arm"); b.textContent = "Confirm"; setTimeout(() => { b.classList.remove("arm"); b.textContent = "Sign out"; }, 3000); return; }
+    signOut(b.dataset.email); return;
+  }
+  if (S.panel !== "edit") return;
+  const ev = findEv(S.edit.id);
+  if (a === "fmt") {
+    const want = e.target.closest("[data-fmt]").dataset.fmt, t = $("#f-title");
+    const cur = want === "checkin" ? isCheckedIn({title: t.value}) : isTimeblock({title: t.value});
+    t.value = cur ? plainTitle(t.value) : want === "checkin" ? bracketFirst(t.value) : dashFirst(t.value);
+    updateFmt();
+    if (S.edit.isNew || !ev) return;                 /* new blocks: applied when you press Save */
+    const f = readForm();
+    applyChange(ev, f);                              /* existing blocks: change the title right away */
+    if (want === "checkin" && !cur) { const live = findEv(ev.id) || ev; checkIn(live); }
+    return;
+  }
+  if (a === "push" && ev) { const f = readForm(); Object.assign(ev, f); closePanel(); pushLocal(ev); return; }
+  if (a === "del") {
+    if (!S.edit.armDel) { S.edit.armDel = true; const b = $("#f-del"); b.classList.add("arm"); b.textContent = "Confirm delete"; setTimeout(() => { if (S.edit) { S.edit.armDel = false; const x = $("#f-del"); if (x) { x.classList.remove("arm"); x.textContent = "Delete"; } } }, 3500); return; }
+    closePanel(); if (ev) deleteEvent(ev); return;
+  }
+  if (a === "save") {
+    const f = readForm(); const isNew = S.edit.isNew; closePanel();
+    if (isNew) createEvent(f); else if (ev) applyChange(ev, f);
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input,select,textarea")) { if (e.key === "Escape") closePanel(); if (e.key === "Enter" && S.panel === "edit" && e.target.id === "f-title") P.querySelector('[data-act="save"]').click(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "escape" && S.panel) return closePanel();
+  if (S.panel) return;
+  if (k === "d") setView("day"); else if (k === "w") setView("week"); else if (k === "m") setView("month");
+  else if (k === "t") $("#today").click(); else if (k === "arrowleft") step(-1); else if (k === "arrowright") step(1);
+  else if (k === "n") { e.preventDefault(); newBlock(); }
+});
+
+/* ---------- check-in reminders: a report's check-in in progress turns the page green until you press Complete ---------- */
+function isDue(e, now = Date.now()) {
+  return !e.allDay && isCheckedIn(e) && !!evPerson(e) && evPerson(e) !== "p0" && e.start <= now && now < e.end && !S.cfg.done[e.id];
+}
+function dueCheckins() { const now = Date.now(); return allEvents().filter(e => isDue(e, now)); }
+function checkDue() {
+  const due = dueCheckins(), on = due.length > 0, b = $("#complete");
+  const key = due.map(e => e.id).sort().join("|");
+  if (key !== S.dueKey) { const first = S.dueKey === undefined; S.dueKey = key; if (!first && !S.drag) { S.view === "month" ? renderMonth() : renderGrid(); } }
+  document.documentElement.classList.toggle("due", on);
+  b.hidden = !on;
+  if (on) {
+    b.textContent = due.length > 1 ? `Complete (${due.length})` : "Complete";
+    b.title = "Check-in due: " + due.map(e => `${person(evPerson(e))?.name || ""}: ${e.title}`).join(" · ");
+  }
+}
+$("#complete").onclick = () => {
+  const now = Date.now();
+  dueCheckins().forEach(e => { S.cfg.done[e.id] = e.end; });
+  for (const [id, end] of Object.entries(S.cfg.done)) if (end < now - DAY) delete S.cfg.done[id];
+  saveCfg(); checkDue();
+};
+
+/* ---------- clock + now line ---------- */
+const WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function tick() {
+  const n = new Date();
+  $("#clock").textContent = `${WD[n.getDay()]}, ${p2(n.getMonth() + 1)}/${p2(n.getDate())} – ${t12(+n).replace(/(\d+:\d+)/, `$1:${p2(n.getSeconds())}`)}`;
+  if (ymd(+n) !== S.todayKey) { S.todayKey = ymd(+n); if (!S.drag) render(); } else placeNow(false);
+  if (n.getSeconds() === 0 || !S.dueInit) { S.dueInit = true; checkDue(); }
+}
+setInterval(tick, 1000);
+setInterval(() => { if (document.visibilityState === "visible" && !S.drag && !S.panel) loadRange(true); }, 60000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") loadRange(true); });
+window.addEventListener("focus", () => { if (!S.drag) loadRange(true); });
+
+let rsT; window.addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(() => { if (!S.drag && S.view !== "month") renderGrid(); }, 120); });
+dbInit(); buildSamples(); tick(); render();
+gInit();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# TJC Fam calendar: a static page plus one serverless function.
+# Your portfolio (www.jiwonbaeq.com) forwards /fam/* here; see README.md.
+
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# The page is written to live under /fam/, both behind your portfolio and on this site's own address.
+[[redirects]]
+  from = "/"
+  to = "/fam/"
+  status = 302
+
+[[redirects]]
+  from = "/fam"
+  to = "/fam/"
+  status = 301
+
+[[redirects]]
+  from = "/fam/"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "same-origin"
+    X-Content-Type-Options = "nosniff"
