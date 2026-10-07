@@ -786,7 +786,7 @@ async function api(path, {method = "GET", query, body} = {}) {
 function errMsg(e) {
   if (e && e.code === "reauth") return `${e.acct || "That Google account"} needs to sign in again. Open Settings → Google accounts.`;
   if (e && e.code === "setup") { G.state = "setup"; return gStateText(); }
-  if (e && e.status === 403) return "Google says this account doesn't have permission to change that calendar.";
+  if (e && e.status === 403) return `Google refused it: "${(e.message || "forbidden").slice(0, 200)}"`;
   if (e && e.status === 404) return "Google couldn't find that event or calendar anymore.";
   if (e && (e.status === 429 || e.status >= 500)) return "Google Calendar didn't respond. Try again in a moment.";
   if (e instanceof TypeError) return "Couldn't reach the calendar server. Check your connection.";
@@ -933,7 +933,7 @@ function pushLater(ev, extra) {
   }).catch(e => {
     const g = ev._good || {};
     Object.assign(ev, {title: g.title, start: g.start, end: g.end, allDay: g.allDay, calId: g.homeCal, homeCal: g.homeCal});
-    toast(`Google Calendar didn't accept that change, so the block went back. ${errMsg(e)}`);
+    toast(`Google Calendar didn't accept that change, so the block went back. ${errMsg(e)} (signed in as ${acctOf(ev.homeCal || ev.calId)}, calendar ${calPart(ev.homeCal || ev.calId)})`);
     render();
   }).finally(() => { ev.inflight--; lock(ev); });
   return ev._chain;
