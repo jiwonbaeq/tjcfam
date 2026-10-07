@@ -8,21 +8,11 @@
 [functions]
   node_bundler = "esbuild"
 
-# The page is written to live under /fam/, both behind your portfolio and on this site's own address.
+# The page lives in public/fam/, so it is served at /fam/ both here and behind your portfolio.
 [[redirects]]
   from = "/"
   to = "/fam/"
   status = 302
-
-[[redirects]]
-  from = "/fam"
-  to = "/fam/"
-  status = 301
-
-[[redirects]]
-  from = "/fam/"
-  to = "/index.html"
-  status = 200
 
 [[headers]]
   for = "/*"

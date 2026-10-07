@@ -5,7 +5,7 @@ It lives at **https://www.jiwonbaeq.com/fam** and can be signed in to several Go
 (e.g. `jiwon@thisjanuary.com` for your lane, `jiwonbaeq@gmail.com` for Rishi's and Sasha's).
 
 ```
-public/index.html            the calendar page
+public/fam/index.html        the calendar page
 netlify/functions/api.mjs    Google sign-in + calendar access (one serverless function, no packages)
 netlify.toml                 Netlify build settings
 ```
