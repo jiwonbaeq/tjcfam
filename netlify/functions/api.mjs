@@ -112,8 +112,18 @@ export default async (req) => {
   /* writes must come from the calendar page itself. The page sends a custom header, which other websites
      can't add to a request without the browser blocking it, and the session cookie is SameSite=Lax.
      (The Origin header can't be used: it changes when your portfolio forwards /fam to this site.) */
-  if (method !== "GET" && req.headers.get("x-tjc-fam") !== "1")
-    return fail(403, "origin", "Requests must come from the calendar page.");
+  if (method !== "GET") {
+    const h = k => req.headers.get(k) || "";
+    let originHost = ""; try { originHost = new URL(h("origin")).hostname; } catch {}
+    const home = new URL(publicUrl()).hostname.replace(/^www\./, "");
+    const ok = h("x-tjc-fam") === "1"                                         /* sent by the calendar page */
+      || ["same-origin", "same-site"].includes(h("sec-fetch-site"))           /* browser says: same site */
+      || (originHost && (originHost.replace(/^www\./, "") === home || originHost.endsWith(".netlify.app")));
+    if (!ok) {
+      console.log("blocked write", { origin: h("origin"), site: h("sec-fetch-site"), marker: h("x-tjc-fam") });
+      return fail(403, "origin", `Requests must come from the calendar page. (origin: ${h("origin") || "none"}, site: ${h("sec-fetch-site") || "none"}, marker: ${h("x-tjc-fam") ? "yes" : "no"})`);
+    }
+  }
 
   try {
     /* ---- sign-in ---- */
