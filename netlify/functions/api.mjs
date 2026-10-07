@@ -145,7 +145,8 @@ export default async (req) => {
       const email = String(claims.email || "").toLowerCase();
       const allowed = env("ALLOWED_EMAILS").toLowerCase().split(",").map(s => s.trim()).filter(Boolean);
       if (!email || (allowed.length && !allowed.includes(email))) return back("signin=notallowed");
-      if (!String(t.scope || "").includes("auth/calendar")) return back("signin=noscope");
+      /* full calendar access (not just read-only) must be granted, or edits would be refused later */
+      if (!String(t.scope || "").split(/\s+/).includes("https://www.googleapis.com/auth/calendar")) return back("signin=noscope");
       const accounts = readSession(req).filter(a => a.e !== email);
       const prev = readSession(req).find(a => a.e === email);
       const rt = t.refresh_token || prev?.r;
