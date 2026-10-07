@@ -519,7 +519,7 @@ function evHTML(e, H, d0) {
   const left = `calc(${e._lane / e._n * 100}% + 2px)`, width = `calc(${100 / e._n}% - 4px)`;
   const flag = ""; void pp;
   const time = `${t12(e.start, true)}–${t12(e.end, true)}`;
-  const ro = e.src === "gcal" && !canWrite(e.calId);
+  const ro = e.src === "gcal" && (!canWrite(e.calId) || e.locked);
   const ci = isCheckedIn(e) ? `<span class="ci" title="Checked in">Check in</span>` : "";
   return `<div data-comment-target class="ev ${pid} ${isDue(e) ? "dueev" : ""} ${xs ? "xs" : ""} ${tiny && !grow ? "fit" : ""} ${isCheckedIn(e) && pid !== "p0" && !isDue(e) ? "chkg" : ""} ${tiny ? "tiny" : ""} ${ro ? "ro" : ""} ${e.declined ? "declined" : ""} ${S.edit && S.edit.id === e.id ? "sel" : ""}" data-id="${esc(e.id)}" style="top:${top}px;${grow ? "min-height" : "height"}:${htx}px;left:${left};width:${width}" title="${esc(e.title)} · ${time}${ro ? " · view only" : ""}">
     <div class="ev-top"><div class="ev-k">${time}</div>${flag}${tiny ? "" : ci}</div><div class="ev-t">${esc(e.title)}</div>${tiny ? ci : ""}<div class="ev-h ev-ht" aria-hidden="true"></div><div class="ev-h" aria-hidden="true"></div></div>`;
@@ -625,7 +625,7 @@ function renderPanel() {
   if (S.panel === "edit") {
     if (P.dataset.for === "edit:" + S.edit.id && P.querySelector("#f-title")) { updateSrc(); return; }
     P.dataset.for = "edit:" + S.edit.id;
-    const d = S.edit.d, cur = findEv(S.edit.id), roEdit = !!(cur && cur.src === "gcal" && !canWrite(cur.calId));
+    const d = S.edit.d, cur = findEv(S.edit.id), roEdit = !!(cur && cur.src === "gcal" && (!canWrite(cur.calId) || cur.locked));
     P.innerHTML = `
       <div class="pn-head"><span class="eyebrow">${S.edit.isNew ? "NEW BLOCK" : "EDIT BLOCK"}</span><button class="ico" data-act="close" aria-label="Close">&times;</button></div>
       <label class="fld"><span>Title</span><input id="f-title" value="${esc(d.title)}" placeholder="GRVTY animation ref review" autocomplete="off"></label>
@@ -711,6 +711,7 @@ function updateSrc() {
   else if (ev.src === "gcal") {
     h = `Google Calendar · <b>${esc(personOfCal(ev.calId)?.calName || ev.calId)}</b>${ev.sync === "pending" ? " · saving…" : " · synced"}`;
     if (!canWrite(ev.calId)) h += `<span class="warnline">${esc(roText(personOfCal(ev.calId)))}</span>`;
+    else if (ev.locked) h += `<span class="warnline">${esc(lockText(ev))}</span>`;
   }
   else {
     h = `Saved in this app only.`;
@@ -811,6 +812,15 @@ async function loadCalendars() {
     G.cals = (j.calendars || []).map(c => ({...c, key: calKey(c.acct, c.id)}));
     G.calErrors = j.errors || [];
     G.cals.forEach(c => { S.access[c.key] = c.accessRole; });
+    const editable = c => c.accessRole === "owner" || c.accessRole === "writer";
+    for (const p of S.people) {
+      if (!p.calId || editable({accessRole: S.access[p.calId]})) continue;
+      const better = G.cals.find(c => c.id === calPart(p.calId) && editable(c) && !S.people.some(q => q !== p && q.calId === c.key));
+      if (!better) continue;
+      for (const [k, ev] of S.g) if (ev.calId === p.calId) S.g.delete(k);
+      p.calId = better.key; p.calName = better.name; saveCfg();
+      toast(`${p.id === "p0" ? "Your" : p.name + "'s"} lane now uses ${better.name} through ${better.acct}, which can edit it.`);
+    }
     G.calErrors.filter(x => x.error === "reauth").forEach(x => toast(`${x.acct} needs to sign in again. Open Settings → Google accounts.`));
   } catch (e) { toast(errMsg(e)); }
 }
@@ -829,7 +839,9 @@ function parseG(r, calId) {
   const att = Array.isArray(r.attendees) ? r.attendees : [];
   const me = att.find(x => x.self);
   return {id: calId + "::" + gid, gId: gid, calId, src: "gcal", title: r.summary || "(No title)", start: st, end: en, allDay: s.ad, sync: "ok",
-    guests: att.map(x => String(x.email || "").toLowerCase()), declined: !!(me && me.responseStatus === "declined")};
+    guests: att.map(x => String(x.email || "").toLowerCase()), declined: !!(me && me.responseStatus === "declined"),
+    /* an invite from someone else: only its organizer can change it, unless they let guests edit */
+    locked: !!(r.organizer && !r.organizer.self && !r.guestsCanModify), organizer: r.organizer && (r.organizer.displayName || r.organizer.email) || ""};
 }
 const timeBody = ev => ev.allDay
   ? {start: {date: ymd(ev.start)}, end: {date: ymd(ev.end)}}
@@ -851,6 +863,7 @@ async function signOut(email) {
   saveCfg(); await loadCalendars(); renderPanel(); render();
   toast(`Signed out of ${email}.`);
 }
+const lockText = ev => `This is ${ev.organizer ? ev.organizer + "'s" : "someone else's"} meeting, so only they can change it. You can still open it here, or decline it in Google Calendar.`;
 const canWrite = calId => !calId || !S.access[calId] || S.access[calId] === "owner" || S.access[calId] === "writer";
 const CI = "jiwon@thisjanuary.com";
 const isCheckedIn = ev => /^\[[^\]]*\]/.test(String(ev.title || "").trim());
@@ -876,6 +889,7 @@ async function checkIn(ev) {
     saveLocal(ev); render();
     toast(invitesFor(ev.person) ? `Checked in. The invite to ${CI} goes out once your lane is linked to a Google calendar you can edit.` : "Checked in."); return;
   }
+  if (ev.locked) { toast(lockText(ev)); return; }
   if (!canWrite(ev.calId)) { toast(roText(personOfCal(ev.calId))); return; }
   if (G.state !== "ready") { toast(gStateText()); return; }
   const invite = invitesFor((personOfCal(ev.calId) || {}).id) && calPart(ev.calId).toLowerCase() !== CI && !(ev.guests || []).includes(CI);
@@ -988,6 +1002,7 @@ async function applyChange(ev, patch) {
   const changed = ["title","start","end","allDay"].some(k => k in g && g[k] !== ev[k]) || (toP && toP.calId !== ev.calId);
   if (!changed) { render(); return; }
   if (!canWrite(home)) { toast(roText(personOfCal(home))); render(); return; }
+  if (ev.locked) { toast(lockText(ev)); render(); return; }
   if (toP && toP.calId && !canWrite(toP.calId)) { toast(roText(toP)); render(); return; }
   if (!toP || !toP.calId) { toast(`${toP ? toP.name : "That person"} has no Google calendar linked. Link one in Settings before moving Google events to their lane.`); render(); return; }
   if (G.state !== "ready") { toast(gStateText()); render(); return; }
