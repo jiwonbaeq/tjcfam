@@ -109,11 +109,11 @@ export default async (req) => {
   if (!env("GOOGLE_CLIENT_ID") || !env("GOOGLE_CLIENT_SECRET") || env("SESSION_SECRET").length < 16 || !publicUrl())
     return fail(500, "setup", "The site isn't set up yet: add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET and PUBLIC_URL in Netlify.");
 
-  /* writes must come from the page itself */
-  if (method !== "GET") {
-    const origin = req.headers.get("origin");
-    if (origin && origin !== new URL(publicUrl()).origin) return fail(403, "origin", "Requests must come from the calendar page.");
-  }
+  /* writes must come from the calendar page itself. The page sends a custom header, which other websites
+     can't add to a request without the browser blocking it, and the session cookie is SameSite=Lax.
+     (The Origin header can't be used: it changes when your portfolio forwards /fam to this site.) */
+  if (method !== "GET" && req.headers.get("x-tjc-fam") !== "1")
+    return fail(403, "origin", "Requests must come from the calendar page.");
 
   try {
     /* ---- sign-in ---- */
