@@ -354,6 +354,7 @@ function isoLocal(ms) {
 const durTxt = m => { const h = Math.floor(m/60), r = Math.round(m%60); return (h ? h + "h" : "") + (r ? (h ? " " : "") + r + "m" : (h ? "" : "0m")); };
 const uid = () => "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const snap = m => Math.round(m / 15) * 15;
+const FREE = 28; /* px of empty space kept on the right of each day-view lane */
 const DS = 9 * 60, DE = 19 * 60; /* visible window: 9 AM – 7 PM */
 
 /* ---------- domain ---------- */
@@ -517,7 +518,9 @@ function evHTML(e, H, d0) {
      side-by-side or week-view blocks keep their slot height and cut long titles with "…" */
   const grow = tiny && !xs && S.view === "day" && e._n === 1;
   const htx = xs ? Math.max(10, (e._e - e._s) / 60 * H - 1) : tiny && !grow ? Math.max(14, (e._e - e._s) / 60 * H - 1) : ht;
-  const left = `calc(${e._lane / e._n * 100}% + 2px)`, width = `calc(${100 / e._n}% - 4px)`;
+  /* day view keeps a free strip on the right of each lane, so you can drag out new blocks beside existing ones */
+  const room = S.view === "day" ? `(100% - ${FREE}px)` : "100%";
+  const left = `calc(${room} * ${e._lane / e._n} + 2px)`, width = `calc(${room} / ${e._n} - 4px)`;
   const flag = ""; void pp;
   const time = `${t12(e.start, true)}–${t12(e.end, true)}`;
   const ro = e.src === "gcal" && (!canWrite(e.calId) || e.locked);
@@ -687,7 +690,7 @@ function renderPanel() {
         <p class="help" style="margin:0">Your reports' calendars show up here once they share them with one of your signed-in accounts (Google Calendar → <b>Settings and sharing</b> → <b>Share with specific people</b> → <b>Make changes to events</b>).</p>
       </div>
       <div class="sec"><h3>SHORTCUTS</h3>
-        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Hold <kbd>⌥ Option</kbd> while dragging to duplicate it instead. Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
+        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Hold <kbd>⌥ Option</kbd> while dragging to duplicate it instead. <kbd>⌘Z</kbd> undo · <kbd>⌘⇧Z</kbd> redo (last 3 changes, within 30 seconds). Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
       </div>`;
   }
 }
@@ -895,7 +898,9 @@ async function checkIn(ev) {
   if (G.state !== "ready") { toast(gStateText()); return; }
   const invite = invitesFor((personOfCal(ev.calId) || {}).id) && calPart(ev.calId).toLowerCase() !== CI && !(ev.guests || []).includes(CI);
   if (!ev._good) ev._good = snapshot(ev);
+  const before = evState(ev);
   ev.title = title; if (invite) ev.guests = [...(ev.guests || []), CI];
+  if (before.title !== title) record({type: "update", ev, before, after: evState(ev)});
   render();
   pushLater(ev, invite ? {addedAttendees: [{email: CI}]} : undefined);
 }
@@ -964,10 +969,50 @@ function refreshCal(calId) { S.loaded.forEach((_, k) => { if (k.startsWith(calId
 
 /* ---------- changes ---------- */
 function hideSamples() { if (!S.cfg.samplesHidden) { S.cfg.samplesHidden = true; saveCfg(); } }
+/* ---------- undo / redo: Cmd+Z and Cmd+Shift+Z, last 3 changes each way, for 30 seconds ----------
+   Each entry remembers the event and its state before and after, so undoing re-applies the earlier state
+   through the same path as a normal edit (screen first, Google in the background). */
+const HIST_MAX = 3, HIST_MS = 30000;
+S.undo = []; S.redo = []; S.replaying = false;
+const evState = ev => ({title: ev.title, start: ev.start, end: ev.end, allDay: !!ev.allDay, person: evPerson(ev) || ev.person, type: evType(ev)});
+const sameState = (a, b) => ["title","start","end","allDay","person"].every(k => a[k] === b[k]);
+function record(op) {
+  if (S.replaying) return;
+  op.t = Date.now(); S.undo.push(op); if (S.undo.length > HIST_MAX) S.undo.shift(); S.redo = [];
+}
+const prune = list => { const now = Date.now(); while (list.length && now - list[0].t > HIST_MS) list.shift(); };
+const live = ev => (ev && (findEv(ev.id) || (S.g.has(ev.id) ? S.g.get(ev.id) : null))) || null;
+const opLabel = op => `"${(op.after || op.data || op.before || {}).title || "event"}"`;
+function replay(op, dir) {
+  S.replaying = true;
+  try {
+    if (op.type === "update") {
+      const ev = live(op.ev); if (!ev) return false;
+      applyChange(ev, {...(dir === "undo" ? op.before : op.after)});
+    } else if (op.type === "create" || op.type === "delete") {
+      const remove = (op.type === "create") === (dir === "undo");
+      if (remove) { const ev = live(op.ev); if (!ev) return false; deleteEvent(ev); }
+      else if (op.sample) { op.ev = {...op.ev}; S.samples.set(op.ev.id, op.ev); render(); }
+      else { S.lastCreated = null; createEvent({...op.data}); if (!S.lastCreated) return false; op.ev = S.lastCreated; }
+    }
+    return true;
+  } finally { S.replaying = false; }
+}
+function undoRedo(dir) {
+  const from = dir === "undo" ? S.undo : S.redo, to = dir === "undo" ? S.redo : S.undo;
+  prune(S.undo); prune(S.redo);
+  const op = from.pop();
+  if (!op) { toast(dir === "undo" ? "Nothing to undo." : "Nothing to redo."); return; }
+  if (!replay(op, dir)) { toast(`Couldn't ${dir} that change: the event is no longer here.`); return; }
+  op.t = Date.now(); to.push(op); if (to.length > HIST_MAX) to.shift();
+  toast(`${dir === "undo" ? "Undid" : "Redid"} the change to ${opLabel(op)}.`);
+}
+
 function duplicateEvent(src, {start, end, person: pid}) {
   if (src.src === "sample") {
     const id = "s" + uid();
-    S.samples.set(id, {...src, id, person: pid, start, end, _good: undefined});
+    const copy = {...src, id, person: pid, start, end, _good: undefined};
+    S.samples.set(id, copy); record({type: "create", ev: copy, sample: true, data: evState(copy)});
     render(); toast("Duplicated."); return;
   }
   createEvent({title: src.title, person: pid, type: evType(src), start, end, allDay: !!src.allDay});
@@ -980,11 +1025,13 @@ async function createEvent(d) {
   if (p && p.calId && G.state === "ready") {
     const ev = {id: "tmp" + uid(), src: "gcal", calId: p.calId, homeCal: p.calId, gId: null, title: d.title, start: d.start, end: d.end, allDay: d.allDay, sync: "ok", _tmp: true, inflight: 1};
     lock(ev); S.g.set(ev.id, ev); render();
+    S.lastCreated = ev; record({type: "create", ev, data: {...d, checkIn: false}});
     ev._chain = gCreate(p.calId, d, inviteExtra(p.calId, d.title)).then(gid => {
       const tmpId = ev.id;
-      if (gid) { S.g.delete(tmpId); ev.gId = gid; ev.id = p.calId + "::" + gid; S.g.set(ev.id, ev); }
+      if (gid) { S.g.delete(tmpId); ev.gId = gid; ev.id = p.calId + "::" + gid; if (!ev._deleted) S.g.set(ev.id, ev); else tombstone(ev.id); }
       ev._tmp = false; ev._good = snapshot(ev);
       if (S.edit && S.edit.id === tmpId) S.edit.id = ev.id;
+      if (gid) document.querySelectorAll(`[data-id="${CSS.escape(tmpId)}"]`).forEach(el => { el.dataset.id = ev.id; });
       if (!gid) setTimeout(() => refreshCal(p.calId), 1500);
     }, e => {
       S.g.delete(ev.id); render();
@@ -994,13 +1041,16 @@ async function createEvent(d) {
   }
   const ev = {id: uid(), src: "local", person: d.person, title: d.title, type: d.type, start: d.start, end: d.end, allDay: d.allDay, sync: "ok"};
   S.local.set(ev.id, ev); saveLocal(ev); render();
+  S.lastCreated = ev; record({type: "create", ev, data: {...d, checkIn: false}});
   if (d.checkIn && invitesFor(d.person) && !(p && p.calId && canWrite(p.calId))) toast(`Checked in. The invite to ${CI} goes out once your lane is linked to a Google calendar you can edit.`);
 }
 async function applyChange(ev, patch) {
-  if (ev.src === "sample") { Object.assign(ev, patch); render(); return; }
+  const before = evState(ev);
+  const note = () => { const after = evState(ev); if (!sameState(before, after)) record({type: "update", ev, before, after}); };
+  if (ev.src === "sample") { Object.assign(ev, patch); note(); render(); return; }
   if (ev.src === "local") {
     const toP = person(patch.person || ev.person), fromP = person(ev.person);
-    Object.assign(ev, patch);
+    Object.assign(ev, patch); note();
     if (patch.person && patch.person !== fromP?.id && toP && toP.calId && G.state === "ready" && canWrite(toP.calId)) { await pushLocal(ev); return; }
     saveLocal(ev); render(); return;
   }
@@ -1017,6 +1067,7 @@ async function applyChange(ev, patch) {
   if (G.state !== "ready") { toast(gStateText()); render(); return; }
   if (!ev._good) ev._good = snapshot(ev);
   Object.assign(ev, g); ev.homeCal = home; ev.calId = toP.calId;
+  note();
   render();
   pushLater(ev);
 }
@@ -1034,14 +1085,15 @@ async function pushLocal(ev) {
   render();
 }
 async function deleteEvent(ev) {
-  if (ev.src === "sample") { S.samples.delete(ev.id); render(); return; }
-  if (ev.src === "local") { dropLocal(ev.id); render(); return; }
+  if (ev.src === "sample") { S.samples.delete(ev.id); record({type: "delete", ev, sample: true, data: evState(ev)}); render(); return; }
+  if (ev.src === "local") { dropLocal(ev.id); record({type: "delete", ev, data: evState(ev)}); render(); return; }
   if (!canWrite(ev.calId)) { toast(roText(personOfCal(ev.calId))); return; }
   if (G.state !== "ready") { toast(gStateText()); return; }
-  S.g.delete(ev.id); tombstone(ev.id); render();
-  const run = () => gDelete(ev.homeCal || ev.calId, ev.gId);
+  ev._deleted = true; S.g.delete(ev.id); tombstone(ev.id); render();
+  record({type: "delete", ev, data: evState(ev)});
+  const run = () => ev.gId ? gDelete(ev.homeCal || ev.calId, ev.gId) : Promise.resolve();
   (ev._chain || Promise.resolve()).then(run).then(() => { delete S.cfg.types[ev.id]; })
-    .catch(e => { S.g.set(ev.id, ev); S.tomb.delete(ev.id); render(); toast(`Couldn't delete it from Google Calendar, so it's back. ${errMsg(e)}`); });
+    .catch(e => { ev._deleted = false; S.g.set(ev.id, ev); S.tomb.delete(ev.id); render(); toast(`Couldn't delete it from Google Calendar, so it's back. ${errMsg(e)}`); });
 }
 
 /* ---------- pointer: time grid ---------- */
@@ -1090,7 +1142,7 @@ function onMove(e) {
   const D = S.drag; if (!D) return;
   if (!D.moved) { if (Math.hypot(e.clientX - D.x0, e.clientY - D.y0) < 5) return; D.moved = true; document.body.classList.add("is-dragging");
     if (D.mode === "copy") document.body.classList.add("is-copying");
-    if (D.mode !== "create" && D.mode !== "mmove") { D.el.classList.add("dragging"); D.el.style.left = "2px"; D.el.style.width = "calc(100% - 4px)"; D.el.style.minHeight = "0"; } }
+    if (D.mode !== "create" && D.mode !== "mmove") { D.el.classList.add("dragging"); D.el.style.left = "2px"; D.el.style.width = S.view === "day" ? `calc(100% - ${FREE + 4}px)` : "calc(100% - 4px)"; D.el.style.minHeight = "0"; } }
   if (D.mode === "mmove") return monthMove(e);
   autoscroll(e); refreshRects();
   if (D.mode === "create") {
@@ -1267,6 +1319,11 @@ P.addEventListener("click", async e => {
   }
 });
 document.addEventListener("keydown", e => {
+  /* Cmd+Z / Cmd+Shift+Z (Ctrl on Windows); typing fields keep their own text undo */
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "z" || e.key === "Z" || (e.ctrlKey && e.key === "y"))
+      && !e.target.closest("input,select,textarea") && !S.drag && S.panel !== "edit") {
+    e.preventDefault(); undoRedo(e.shiftKey || e.key === "y" ? "redo" : "undo"); return;
+  }
   if (e.target.closest("input,select,textarea")) { if (e.key === "Escape") closePanel(); if (e.key === "Enter" && S.panel === "edit" && e.target.id === "f-title") P.querySelector('[data-act="save"]').click(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
