@@ -182,6 +182,15 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .week .ci{height:14px;padding:0 3px;font-size:7.5px;letter-spacing:.04em}
 .week .ev-top{flex-wrap:wrap;row-gap:2px}
 .ev.chkg{background:var(--chk)!important;border-color:var(--chk-edge)!important;color:var(--fg)!important}
+.ev.mini{left:auto!important;right:3px;width:6px!important;padding:0;border-radius:3px;min-height:0;opacity:.55;overflow:visible;z-index:1;cursor:pointer}
+.week .ev.mini{width:4px!important;right:1px}
+.ev.mini:hover,.ev.mini.sel{opacity:1;z-index:6}
+.ev.mini .mini-tag{display:none;position:absolute;right:calc(100% + 6px);top:0;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;padding:3px 7px;border-radius:4px;background:var(--raise);color:var(--fg);border:1px solid var(--line-2);font-size:10.5px;letter-spacing:.04em;pointer-events:none}
+.ev.mini:hover .mini-tag{display:block}
+.ev.mini.dragging{left:2px!important;right:auto;width:calc(100% - 4px)!important;opacity:1}
+.ev.mini.dragging .mini-tag{display:none!important}
+.mchip.mini{opacity:.4}
+.mchip.mini .mx{font-style:italic}
 .ev.declined{opacity:.45}
 .ev.declined .ev-t{text-decoration:line-through}
 .ev.ro{cursor:default}
@@ -355,6 +364,15 @@ const durTxt = m => { const h = Math.floor(m/60), r = Math.round(m%60); return (
 const uid = () => "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const snap = m => Math.round(m / 15) * 15;
 const FREE = 28; /* px of empty space kept on the right of each day-view lane */
+/* minimized events: a thin strip at the lane's right edge, out of the way of priority blocks */
+const miniKey = ev => ev.series || ev.id;
+const isMini = ev => !!S.cfg.mini[miniKey(ev)];
+function setMini(ev, on) {
+  const k = miniKey(ev);
+  if (on) S.cfg.mini[k] = {title: ev.title, at: Date.now()}; else delete S.cfg.mini[k];
+  saveCfg(); render();
+  toast(on ? `Minimized "${ev.title}"${ev.series ? " and its repeats" : ""}. Click the thin strip to bring it back.` : `"${ev.title}" is shown in full again.`);
+}
 const DS = 9 * 60, DE = 19 * 60; /* visible window: 9 AM – 7 PM */
 
 /* ---------- domain ---------- */
@@ -381,7 +399,7 @@ const DEFAULT_PEOPLE = [
 const S = {
   view: "week", anchor: weekday(new Date()),
   people: DEFAULT_PEOPLE.map(p => ({...p})),
-  cfg: {samplesHidden:false, types:{}, invite: DEFAULT_INVITE, done:{}},
+  cfg: {samplesHidden:false, types:{}, invite: DEFAULT_INVITE, done:{}, mini:{}},
   local: new Map(), g: new Map(), samples: new Map(),
   H: 48, cols: [], colRects: [], drag: null, dirty: false,
   panel: null, edit: null, loading: 0, loaded: new Map(), calErr: {}, access: {},
@@ -509,6 +527,11 @@ function layoutCol(evs) {
   evs.forEach(e => { if (e._s >= end) flush(); cluster.push(e); end = Math.max(end, e._e); });
   flush(); return all;
 }
+function miniHTML(e, H) {
+  const pid = evPerson(e), top = (e._s - DS) / 60 * H, ht = Math.max(6, (e._e - e._s) / 60 * H - 2);
+  const time = `${t12(e.start, true)}–${t12(e.end, true)}`;
+  return `<div data-comment-target class="ev mini ${pid} ${S.edit && S.edit.id === e.id ? "sel" : ""}" data-id="${esc(e.id)}" style="top:${top}px;height:${ht}px" title="${esc(e.title)} · ${time} (minimized: click to open)"><span class="mini-tag">${esc(e.title)}</span></div>`;
+}
 function evHTML(e, H, d0) {
   const pid = evPerson(e), pp = person(pid);
   const top = (e._s - DS) / 60 * H, ht = Math.max(15, (e._e - e._s) / 60 * H - 2);
@@ -564,7 +587,7 @@ function renderGrid() {
     c.ci = ci;
     const list = evs.filter(e => !e.allDay && evPerson(e) === c.p.id && e.start < b && e.end > a)
       .map(e => Object.assign(e, {_s: Math.max(DS, (e.start - a) / MIN), _e: Math.min(DE, (e.end - a) / MIN)})).filter(e => e._e > e._s);
-    h += `<div class="col ${c.pi === 0 ? "dstart" : ""} ${sameDay(c.d, Date.now()) ? "today" : ""}" style="grid-column:${ci + 2}" data-d="${a}" data-p="${c.p.id}">${layoutCol(list).map(e => evHTML(e, H)).join("")}</div>`;
+    h += `<div class="col ${c.pi === 0 ? "dstart" : ""} ${sameDay(c.d, Date.now()) ? "today" : ""}" style="grid-column:${ci + 2}" data-d="${a}" data-p="${c.p.id}">${layoutCol(list.filter(e => !isMini(e))).map(e => evHTML(e, H)).join("")}${list.filter(isMini).map(e => miniHTML(e, H)).join("")}</div>`;
   });
   h += `<div class="nowlayer" id="nowlayer"><i class="nowfaint"></i><i class="nowsolid"></i></div><div class="guides" id="guides" hidden><i><b></b></i><i><b></b></i></div></div></div>`;
   view.innerHTML = h;
@@ -602,12 +625,12 @@ function renderMonth() {
   for (let i = 0; i < n; i++) {
     if (i % 7 >= 5) continue; /* weekdays only */
     const d = addDays(a, i), ds = +d, de = +addDays(d, 1);
-    const list = evs.filter(e => e.start < de && e.end > ds).sort((x, y) => (y.allDay - x.allDay) || x.start - y.start);
+    const list = evs.filter(e => e.start < de && e.end > ds).sort((x, y) => (isMini(x) - isMini(y)) || (y.allDay - x.allDay) || x.start - y.start);
     const max = 3, shown = list.slice(0, max);
     h += `<div class="mc ${d.getMonth() !== S.anchor.getMonth() ? "out" : ""} ${sameDay(d, Date.now()) ? "today" : ""}" data-d="${ds}">
       <button class="mn" data-goto="${ds}" aria-label="Open ${d.toDateString()}">${d.getDate()}</button><div class="ml">`;
     shown.forEach(e => { const pid = evPerson(e);
-      h += `<div data-comment-target class="mchip ${isDue(e) ? "dueev" : ""}" data-id="${esc(e.id)}" title="${esc(person(pid)?.name)} · ${esc(e.title)}"><i class="sw ${pid}"></i><span class="mt">${e.allDay ? "ALL" : t12(e.start, true)}</span><span class="mx">${esc(e.title)}</span></div>`; });
+      h += `<div data-comment-target class="mchip ${isDue(e) ? "dueev" : ""} ${isMini(e) ? "mini" : ""}" data-id="${esc(e.id)}" title="${esc(person(pid)?.name)} · ${esc(e.title)}"><i class="sw ${pid}"></i><span class="mt">${e.allDay ? "ALL" : t12(e.start, true)}</span><span class="mx">${esc(e.title)}</span></div>`; });
     if (list.length > max) h += `<button class="more" data-goto="${ds}">+${list.length - max} MORE</button>`;
     h += `</div></div>`;
   }
@@ -649,6 +672,7 @@ function renderPanel() {
         </div>`}
         <div class="pn-row">
           ${roEdit ? "" : `<button class="btn solid" data-act="save">Save</button>`}
+          ${S.edit.isNew || !cur ? "" : `<button class="btn" data-act="mini" title="Shrink it to a thin strip so the blocks you care about get the full width">${isMini(cur) ? "Show in full" : "Minimize"}</button>`}
           ${S.edit.isNew || roEdit ? "" : `<button class="btn danger" data-act="del" id="f-del">Delete</button>`}
           <button class="btn" data-act="close">Cancel</button>
         </div>
@@ -690,7 +714,7 @@ function renderPanel() {
         <p class="help" style="margin:0">Your reports' calendars show up here once they share them with one of your signed-in accounts (Google Calendar → <b>Settings and sharing</b> → <b>Share with specific people</b> → <b>Make changes to events</b>).</p>
       </div>
       <div class="sec"><h3>SHORTCUTS</h3>
-        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Hold <kbd>⌥ Option</kbd> while dragging to duplicate it instead. <kbd>⌘Z</kbd> undo · <kbd>⌘⇧Z</kbd> redo (last 3 changes, within 30 seconds). Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
+        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Hold <kbd>⌥ Option</kbd> while dragging to duplicate it instead. Open an event and press <b>Minimize</b> to shrink it to a thin strip (repeating meetings shrink every time). <kbd>⌘Z</kbd> undo · <kbd>⌘⇧Z</kbd> redo (last 3 changes, within 30 seconds). Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
       </div>`;
   }
 }
@@ -749,7 +773,7 @@ const LS_CFG = "tjcfam.cfg.v1", LS_LOCAL = "tjcfam.local.v1";
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
 const DB = {cfgT: null, localT: null};
-function cfgData() { return {people: S.people.map(({id, name, role, calId, calName, visible}) => ({id, name, role, calId: calId || null, calName: calName || "", visible})), samplesHidden: S.cfg.samplesHidden, types: S.cfg.types, done: S.cfg.done, view: S.view}; }
+function cfgData() { return {people: S.people.map(({id, name, role, calId, calName, visible}) => ({id, name, role, calId: calId || null, calName: calName || "", visible})), samplesHidden: S.cfg.samplesHidden, types: S.cfg.types, done: S.cfg.done, mini: S.cfg.mini, view: S.view}; }
 function saveCfg() { clearTimeout(DB.cfgT); DB.cfgT = setTimeout(() => lsSet(LS_CFG, cfgData()), 300); }
 function saveLocals() { clearTimeout(DB.localT); DB.localT = setTimeout(() => lsSet(LS_LOCAL, [...S.local.values()].map(({id, person, title, type, start, end, allDay}) => ({id, person, title, type, start, end, allDay: !!allDay}))), 300); }
 function saveLocal() { saveLocals(); }
@@ -758,7 +782,7 @@ function dbInit() {
   const x = lsGet(LS_CFG);
   if (x) {
     if (Array.isArray(x.people)) x.people.forEach(sp => { const p = person(sp.id); if (p) Object.assign(p, {name: sp.name || p.name, role: sp.role ?? p.role, calId: sp.calId || null, calName: sp.calName || "", visible: sp.visible !== false}); });
-    S.cfg.samplesHidden = !!x.samplesHidden; S.cfg.types = {...(x.types || {})}; S.cfg.done = {...(x.done || {})};
+    S.cfg.samplesHidden = !!x.samplesHidden; S.cfg.types = {...(x.types || {})}; S.cfg.done = {...(x.done || {})}; S.cfg.mini = {...(x.mini || {})};
     if (["day","week","month"].includes(x.view)) S.view = x.view;
   }
   (lsGet(LS_LOCAL) || []).forEach(e => { if (e && e.id && e.start) S.local.set(e.id, {...e, src: "local", sync: "ok"}); });
@@ -845,7 +869,8 @@ function parseG(r, calId) {
   return {id: calId + "::" + gid, gId: gid, calId, src: "gcal", title: r.summary || "(No title)", start: st, end: en, allDay: s.ad, sync: "ok",
     guests: att.map(x => String(x.email || "").toLowerCase()), declined: !!(me && me.responseStatus === "declined"),
     /* an invite from someone else: only its organizer can change it, unless they let guests edit */
-    locked: !!(r.organizer && !r.organizer.self && !r.guestsCanModify), organizer: r.organizer && (r.organizer.displayName || r.organizer.email) || ""};
+    locked: !!(r.organizer && !r.organizer.self && !r.guestsCanModify), organizer: r.organizer && (r.organizer.displayName || r.organizer.email) || "",
+    series: r.recurringEventId ? calId + "::" + r.recurringEventId : ""};
 }
 const timeBody = ev => ev.allDay
   ? {start: {date: ymd(ev.start)}, end: {date: ymd(ev.end)}}
@@ -1297,6 +1322,7 @@ P.addEventListener("click", async e => {
   }
   if (S.panel !== "edit") return;
   const ev = findEv(S.edit.id);
+  if (a === "mini" && ev) { const on = !isMini(ev); closePanel(); setMini(ev, on); return; }
   if (a === "fmt") {
     const want = e.target.closest("[data-fmt]").dataset.fmt, t = $("#f-title");
     const cur = want === "checkin" ? isCheckedIn({title: t.value}) : isTimeblock({title: t.value});
