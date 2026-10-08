@@ -194,6 +194,7 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .ev.ghost{background:transparent!important;border:1.5px dashed var(--fg)!important;color:var(--fg);pointer-events:none}
 .ev.sel{box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--fg);z-index:3}
 body.is-dragging,body.is-dragging *{cursor:grabbing!important;user-select:none}
+body.alt-down .ev:not(.ghost),body.alt-down .mchip,body.is-copying,body.is-copying *{cursor:copy!important}
 
 /* month */
 .month{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
@@ -686,7 +687,7 @@ function renderPanel() {
         <p class="help" style="margin:0">Your reports' calendars show up here once they share them with one of your signed-in accounts (Google Calendar → <b>Settings and sharing</b> → <b>Share with specific people</b> → <b>Make changes to events</b>).</p>
       </div>
       <div class="sec"><h3>SHORTCUTS</h3>
-        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
+        <div class="keys"><kbd>D</kbd> day · <kbd>W</kbd> week · <kbd>M</kbd> month · <kbd>T</kbd> today · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>N</kbd> new block · <kbd>Esc</kbd> close<br>Drag a block to move it, including into another person's lane. Hold <kbd>⌥ Option</kbd> while dragging to duplicate it instead. Drag its bottom edge to change the length. Drag or double-click an empty slot to make a block.</div>
       </div>`;
   }
 }
@@ -963,6 +964,14 @@ function refreshCal(calId) { S.loaded.forEach((_, k) => { if (k.startsWith(calId
 
 /* ---------- changes ---------- */
 function hideSamples() { if (!S.cfg.samplesHidden) { S.cfg.samplesHidden = true; saveCfg(); } }
+function duplicateEvent(src, {start, end, person: pid}) {
+  if (src.src === "sample") {
+    const id = "s" + uid();
+    S.samples.set(id, {...src, id, person: pid, start, end, _good: undefined});
+    render(); toast("Duplicated."); return;
+  }
+  createEvent({title: src.title, person: pid, type: evType(src), start, end, allDay: !!src.allDay});
+}
 async function createEvent(d) {
   hideSamples();
   if (d.checkIn) d.title = bracketFirst(d.title);
@@ -1045,6 +1054,14 @@ function autoscroll(e) {
 }
 function startDrag(e, ev, el, mode) {
   e.preventDefault(); refreshRects();
+  if (mode === "move" && e.altKey) {                 /* Option-drag: leave the original, drag a copy */
+    const copy = el.cloneNode(true);
+    copy.classList.remove("ro", "sel", "dueev", "pending");
+    copy.removeAttribute("data-comment-target");
+    copy.dataset.id = "copy";
+    el.parentElement.appendChild(copy);
+    el = copy; mode = "copy";
+  }
   const host = S.colRects.find(c => c.el === el.parentElement) || colAt(e.clientX);
   const sMin = (ev.start - host.d) / MIN, dur = (ev.end - ev.start) / MIN;
   S.drag = {mode, ev, el, x0: e.clientX, y0: e.clientY, moved: false, grab: minAt(host, e.clientY) - sMin, dur, d: host.d, p: host.p, sMin, eMin: sMin + dur};
@@ -1072,6 +1089,7 @@ function hideGuides() { const g = $("#guides"); if (g) g.hidden = true; }
 function onMove(e) {
   const D = S.drag; if (!D) return;
   if (!D.moved) { if (Math.hypot(e.clientX - D.x0, e.clientY - D.y0) < 5) return; D.moved = true; document.body.classList.add("is-dragging");
+    if (D.mode === "copy") document.body.classList.add("is-copying");
     if (D.mode !== "create" && D.mode !== "mmove") { D.el.classList.add("dragging"); D.el.style.left = "2px"; D.el.style.width = "calc(100% - 4px)"; D.el.style.minHeight = "0"; } }
   if (D.mode === "mmove") return monthMove(e);
   autoscroll(e); refreshRects();
@@ -1084,7 +1102,7 @@ function onMove(e) {
     showGuides(D.s, D.e);
     return;
   }
-  if (D.mode === "move") {
+  if (D.mode === "move" || D.mode === "copy") {
     const c = colAt(e.clientX);
     let s = snap(minAt(c, e.clientY) - D.grab); s = Math.max(DS, Math.min(DE - Math.min(D.dur, DE - DS), s));
     D.sMin = s; D.eMin = s + D.dur; D.d = c.d; D.p = c.p;
@@ -1102,8 +1120,15 @@ function onMove(e) {
   const k = D.el.querySelector(".ev-k"); if (k) k.textContent = `${t12(D.d + D.sMin * MIN, true)}–${t12(D.d + D.eMin * MIN, true)}`;
 }
 function onUp() {
-  unlisten(); const D = S.drag; S.drag = null; document.body.classList.remove("is-dragging"); hideGuides();
+  unlisten(); const D = S.drag; S.drag = null; document.body.classList.remove("is-dragging", "is-copying"); hideGuides();
   if (!D) return;
+  if (D.mode === "copy") {
+    D.el.remove();
+    if (!D.moved) { if (S.dirty) { S.dirty = false; render(); } openEditor(D.ev); return; }
+    S.dirty = false;
+    duplicateEvent(D.ev, {start: D.d + D.sMin * MIN, end: D.d + D.eMin * MIN, person: D.p});
+    return;
+  }
   if (D.mode === "mmove") return monthUp(D);
   if (D.mode === "create") {
     D.el.remove();
@@ -1123,7 +1148,8 @@ function monthDown(e, chip) {
   const ev = findEv(chip.dataset.id); if (!ev) return;
   if (e.pointerType === "touch") { S.drag = {mode: "mmove", ev, el: chip, moved: false, x0: e.clientX, y0: e.clientY, touch: true}; listen(); return; }
   e.preventDefault();
-  S.drag = {mode: "mmove", ev, el: chip, moved: false, x0: e.clientX, y0: e.clientY, from: +chip.closest(".mc").dataset.d, target: null};
+  S.drag = {mode: "mmove", ev, el: chip, moved: false, x0: e.clientX, y0: e.clientY, from: +chip.closest(".mc").dataset.d, target: null, copy: e.altKey};
+  if (e.altKey) document.body.classList.add("is-copying");
   listen();
 }
 function monthMove(e) {
@@ -1139,6 +1165,7 @@ function monthUp(D) {
   D.el.style.transform = ""; D.el.classList.remove("dragging");
   if (!D.target) { render(); return; }
   const days = Math.round((+D.target.dataset.d - D.from) / DAY);
+  if (D.copy) { duplicateEvent(D.ev, {start: +addDays(D.ev.start, days), end: +addDays(D.ev.end, days), person: evPerson(D.ev)}); return; }
   if (!days) { render(); return; }
   applyChange(D.ev, {start: +addDays(D.ev.start, days), end: +addDays(D.ev.end, days)});
 }
@@ -1287,7 +1314,10 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 window.addEventListener("focus", () => { if (!S.drag) loadRange(true); });
 
 let rsT; window.addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(() => { if (!S.drag && S.view !== "month") renderGrid(); }, 120); });
-dbInit(); buildSamples(); tick(); render();
+dbInit(); const altSync = e => document.body.classList.toggle("alt-down", !!e.altKey);
+window.addEventListener("keydown", altSync); window.addEventListener("keyup", altSync);
+window.addEventListener("blur", () => document.body.classList.remove("alt-down"));
+buildSamples(); tick(); render();
 gInit();
 })();
 </script>
